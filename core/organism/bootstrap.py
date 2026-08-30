@@ -31,7 +31,6 @@ from ..skills.skill_learner import SkillLearner
 def create_jarvis(identity=None, personality=None, values=None,
                   heartbeat_interval: float = 5.0,
                   idle_threshold: float = 30.0) -> JarvisCore:
-    """Construct the complete JARVIS organism with explicit Brain wiring."""
     state = InternalState()
     events = EventBus(internal_state=state)
     heartbeat = Heartbeat(event_bus=events, internal_state=state,
@@ -42,8 +41,8 @@ def create_jarvis(identity=None, personality=None, values=None,
     knowledge_builder = KnowledgeBuilder(event_bus=events, internal_state=state, memory_manager=memory)
     consolidator = MemoryConsolidator(memory_manager=memory, event_bus=events)
     learning = LearningCoordinator(evaluator=evaluator, knowledge_builder=knowledge_builder,
-                                    consolidator=consolidator, memory_manager=memory,
-                                    event_bus=events, internal_state=state)
+                                   consolidator=consolidator, memory_manager=memory,
+                                   event_bus=events, internal_state=state)
     evolution = EvolutionEngine(event_bus=events, internal_state=state, memory_manager=memory)
 
     goal_manager = GoalManager(store=memory.store)
@@ -54,11 +53,10 @@ def create_jarvis(identity=None, personality=None, values=None,
     skill_registry = SkillRegistry()
     skill_executor = SkillExecutor(skill_registry)
     skill_learner = SkillLearner()
-    idle_executor = IdleExecutor(event_bus=events)
+    idle_executor = IdleExecutor(capabilities=skill_registry.skills, event_bus=events)
     cognitive_router = CognitiveRouter()
     perception = PerceptionEngine(state=state)
 
-    # IdleExecutor is the only execution boundary exposed to IdleLoop.
     idle_loop = IdleLoop(goal_manager=goal_manager, curiosity=curiosity,
                          planner=planner, scheduler=scheduler, state=state,
                          event_bus=events, store=memory.store,
