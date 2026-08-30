@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-"""LLM-optional Brain adapter.
-
-Perception now precedes routing. The LLM is injected as a replaceable
-PerceptionProvider and remains a fallback cognition/response service.
-"""
+"""LLM-optional Brain adapter: perception -> routing -> action/LLM."""
 from time import time
 from typing import Any, Dict, Optional
 
@@ -14,7 +10,7 @@ from ..skills.skill_executor import SkillExecutor
 
 
 class LLMOptionalBrain(BaseBrain):
-    """Brain whose language cognition can be replaced without changing Brain."""
+    """Brain whose language cognition is a replaceable perception provider."""
 
     VERSION = getattr(BaseBrain, "VERSION", "unknown") + "+perception-router"
 
@@ -25,10 +21,21 @@ class LLMOptionalBrain(BaseBrain):
         self.skill_registry = skill_registry
         self.skill_executor = SkillExecutor(skill_registry) if skill_registry is not None else None
         self.perception = perception_engine or PerceptionEngine(state=self.state)
-        if self.llm is not None and not self.perception.providers:
-            self.perception.add_provider(LLMPerceptionProvider(self.llm))
+        if self.llm is not None:
+            self.set_llm_bridge(self.llm)
         self.last_cognitive_decision: Optional[Dict[str, Any]] = None
         self.last_perception: Optional[Dict[str, Any]] = None
+
+    def set_llm_bridge(self, llm_bridge: Any) -> None:
+        """Attach/detach the LLM without changing Brain or Router contracts."""
+        self.llm = llm_bridge
+        self.perception.providers = [p for p in self.perception.providers if getattr(p, "name", None) != "llm"]
+        if llm_bridge is not None:
+            self.perception.add_provider(LLMPerceptionProvider(llm_bridge))
+
+    def attach_skill_registry(self, skill_registry: Any) -> None:
+        self.skill_registry = skill_registry
+        self.skill_executor = SkillExecutor(skill_registry) if skill_registry is not None else None
 
     def _perceive(self, user_input: str) -> Dict[str, Any]:
         context = self.build_context(query=user_input, recent_limit=3) if self.memory is not None else {}
@@ -44,7 +51,6 @@ class LLMOptionalBrain(BaseBrain):
             current_goal = getattr(self.goal_manager, "current_goal", None)
             if current_goal is not None:
                 goals = [current_goal]
-
         decision = self.cognitive_router.decide(
             user_input=user_input,
             context=context,
@@ -57,11 +63,8 @@ class LLMOptionalBrain(BaseBrain):
         self.last_cognitive_decision = payload
         if self.state is not None:
             try:
-                self.state.update(
-                    last_route=decision.mode,
-                    confidence=decision.confidence,
-                    uncertainty=1.0 - decision.confidence,
-                )
+                self.state.update(last_route=decision.mode, confidence=decision.confidence,
+                                  uncertainty=1.0 - decision.confidence)
             except Exception:
                 pass
         return payload
@@ -69,12 +72,8 @@ class LLMOptionalBrain(BaseBrain):
     def _trace(self, user_input: str, response: str, route: Dict[str, Any],
                perception: Dict[str, Any], started: float, llm: bool) -> None:
         self.last_turn_trace = {
-            "source": "brain",
-            "query": user_input,
-            "response_preview": response[:200],
-            "perception": perception,
-            "cognitive_route": route,
-            "llm_available": llm,
+            "source": "brain", "query": user_input, "response_preview": response[:200],
+            "perception": perception, "cognitive_route": route, "llm_available": llm,
             "pipeline_success": True,
             "timings": {"total": time() - started, "memory": 0.0, "llm": 0.0},
         }
@@ -83,8 +82,6 @@ class LLMOptionalBrain(BaseBrain):
         lower = (user_input or "").strip().lower()
         if lower in {"status", "health", "ping"}:
             return "JARVIS Core ONLINE. LLM unavailable; operating in degraded cognitive mode."
-        if lower in {"who are you", "what are you", "tum kaun ho", "aap kaun ho"}:
-            return "Main JARVIS ka core organism hoon. Brain, state, memory, learning aur autonomous subsystems active hain; natural-language cognition abhi unavailable hai."
         return "JARVIS received the input, but no language cognition provider is currently available. Core organism remains active."
 
     def think_and_respond(self, user_input: str,
@@ -119,8 +116,6 @@ class LLMOptionalBrain(BaseBrain):
             self._trace(user_input, response, route, perception, started, self.llm is not None)
             return response
 
-        # LLM is reached only after perception + routing determine that
-        # deterministic organism evidence is currently insufficient.
         if mode == "llm" and self.llm is not None:
             response = super().think_and_respond(user_input, identity_profile=identity_profile, source=source)
             self._trace(user_input, response, route, perception, started, True)
