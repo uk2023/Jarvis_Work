@@ -10,7 +10,6 @@ from typing import Any, Dict, Mapping, Optional, Protocol
 @dataclass(frozen=True)
 class PerceptionResult:
     """Stable machine-readable meaning passed from perception to Brain/router."""
-
     user_input: str
     normalized_text: str
     intent: Dict[str, Any] = field(default_factory=dict)
@@ -26,30 +25,11 @@ class PerceptionResult:
     timestamp: float = field(default_factory=time.time)
 
     def as_dict(self) -> Dict[str, Any]:
-        return {
-            "user_input": self.user_input,
-            "normalized_text": self.normalized_text,
-            "intent": self.intent,
-            "entities": self.entities,
-            "goal": self.goal,
-            "requested_capability": self.requested_capability,
-            "speech_act": self.speech_act,
-            "language": self.language,
-            "confidence": self.confidence,
-            "uncertainty": self.uncertainty,
-            "source": self.source,
-            "reason": self.reason,
-            "timestamp": self.timestamp,
-        }
+        return self.__dict__.copy()
 
 
 class PerceptionProvider(Protocol):
-    """Provider that converts language into structured perception.
-
-    Providers are replaceable. The Brain/Router never depends on an LLM
-    implementation directly; an LLM is simply one possible provider.
-    """
-
+    """Replaceable provider; LLM is only one possible implementation."""
     name: str
 
     def perceive(self, user_input: str, context: Optional[Mapping[str, Any]] = None) -> PerceptionResult:
@@ -57,25 +37,31 @@ class PerceptionProvider(Protocol):
 
 
 class LLMPerceptionProvider:
-    """LLM-backed perception provider used while native cognition matures."""
-
+    """Temporary LLM-backed perception provider while native cognition matures."""
     name = "llm"
 
-    PROMPT = """Convert the user's message into ONE structured perception.
-Return ONLY valid JSON with this shape:
-{"intent":{"name":"...","confidence":0.0},"entities":{},"goal":null,"requested_capability":null,"speech_act":null,"language":"...","confidence":0.0,"reason":"..."}
-Do not answer the user. Do not invent facts. If meaning is unclear, use an empty intent name and low confidence.
-User message: {user_input}
-Context: {context}
-"""
+    SYSTEM_PROMPT = (
+        "Convert a user's message into one structured perception. "
+        "Return ONLY valid JSON. Never answer the user and never invent facts. "
+        "Use an empty intent name and low confidence when meaning is unclear. "
+        "Required keys: intent, entities, goal, requested_capability, "
+        "speech_act, language, confidence, reason."
+    )
 
     def __init__(self, llm_bridge: Any):
         self.llm = llm_bridge
 
     def perceive(self, user_input: str, context: Optional[Mapping[str, Any]] = None) -> PerceptionResult:
+        prompt = (
+            f"User message: {user_input}\n"
+            f"Context: {dict(context or {})}\n"
+            'JSON shape: {"intent":{"name":"...","confidence":0.0},'
+            '"entities":{},"goal":null,"requested_capability":null,'
+            '"speech_act":null,"language":"...","confidence":0.0,"reason":"..."}'
+        )
         raw = self.llm.generate_response(
-            system_prompt=self.PROMPT,
-            user_input=self.PROMPT.format(user_input=user_input, context=dict(context or {})),
+            system_prompt=self.SYSTEM_PROMPT,
+            user_input=prompt,
             max_tokens=300,
             temperature=0.0,
         )
@@ -83,12 +69,7 @@ Context: {context}
         try:
             data = json.loads(cleaned)
         except Exception as exc:
-            return PerceptionResult(
-                user_input=user_input,
-                normalized_text=user_input,
-                source=self.name,
-                reason=f"provider returned invalid JSON: {exc}",
-            )
+            return PerceptionResult(user_input, user_input, source=self.name, reason=f"invalid provider JSON: {exc}")
 
         intent = data.get("intent") if isinstance(data.get("intent"), dict) else {}
         confidence = float(data.get("confidence", intent.get("confidence", 0.0)) or 0.0)
@@ -110,14 +91,8 @@ Context: {context}
 
 
 class PerceptionEngine:
-    """Provider-agnostic perception organ.
-
-    Provider order is explicit. A provider failure never becomes an invented
-    intent. The engine returns low-confidence perception so the Router can
-    safely choose the LLM/clarification path.
-    """
-
-    VERSION = "0.1.0"
+    """Provider-agnostic perception organ with explicit provider ordering."""
+    VERSION = "0.2.0"
 
     def __init__(self, providers=None, state=None):
         self.providers = list(providers or [])
@@ -134,11 +109,7 @@ class PerceptionEngine:
                 if not isinstance(result, PerceptionResult):
                     continue
                 self.last_result = result
-                if self.state is not None:
-                    try:
-                        self.state.update(last_perception=result.as_dict())
-                    except Exception:
-                        pass
+                self._publish_state(result)
                 return result
             except Exception:
                 continue
@@ -150,9 +121,13 @@ class PerceptionEngine:
             reason="No perception provider produced a result.",
         )
         self.last_result = result
-        if self.state is not None:
-            try:
-                self.state.update(last_perception=result.as_dict())
-            except Exception:
-                pass
+        self._publish_state(result)
         return result
+
+    def _publish_state(self, result: PerceptionResult) -> None:
+        if self.state is None:
+            return
+        try:
+            self.state.update(last_perception=result.as_dict())
+        except Exception:
+            pass
