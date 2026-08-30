@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 """LLM-optional runtime adapter for JARVIS Brain.
 
-The adapter makes CognitiveRouter the first decision point in the live
-Brain pipeline. The LLM is a fallback cognition service, not the owner of
-orchestration. Deterministic routes require structured intent/capability
-evidence from organism organs; the router itself never parses language.
+CognitiveRouter is the first decision point in the live Brain pipeline. The
+LLM is a fallback cognition service, not the owner of orchestration.
 """
 from time import time
 from typing import Any, Dict, Optional
@@ -22,16 +20,21 @@ class LLMOptionalBrain(BaseBrain):
         super().__init__(*args, **kwargs)
         self.cognitive_router = cognitive_router or CognitiveRouter()
         self.skill_registry = skill_registry
+        self.skill_executor = None
         self.last_cognitive_decision: Optional[Dict[str, Any]] = None
 
-    def _get_structured_intent(self) -> Optional[Dict[str, Any]]:
-        """Read structured meaning supplied by an organism perception organ.
+    def _get_structured_intent(self, user_input: str) -> Optional[Dict[str, Any]]:
+        """Read only a perception explicitly associated with this input.
 
-        The router never invents intent. Until a perception/intent organ
-        supplies structured meaning, the safe result is an LLM route.
+        The router never invents intent. A stale perception from an earlier
+        turn must never be allowed to authorize a new native action.
         """
         perception = getattr(self.state, "last_perception", None) if self.state is not None else None
         if not isinstance(perception, dict):
+            return None
+
+        source_input = perception.get("user_input") or perception.get("source_input")
+        if source_input != user_input:
             return None
 
         intent = perception.get("intent")
@@ -54,7 +57,7 @@ class LLMOptionalBrain(BaseBrain):
             skills=getattr(self.skill_registry, "skills", None),
             identity=None,
             goals=goals,
-            explicit_intent=self._get_structured_intent(),
+            explicit_intent=self._get_structured_intent(user_input),
         )
         payload = decision.as_dict()
         self.last_cognitive_decision = payload
@@ -102,15 +105,13 @@ class LLMOptionalBrain(BaseBrain):
         turn_start = time()
         route = self._route_cognition(user_input)
 
-        # Deterministic/organism-native routes are intentionally handled here
-        # before the LLM. The current SkillExecutor API requires a concrete
-        # skill name and arguments; structured intent is therefore the gate.
         mode = route.get("mode")
-        intent = self._get_structured_intent() or {}
+        intent = self._get_structured_intent(user_input) or {}
 
+        # A native tool route is executable without language generation.
         if mode == "tool" and self.skill_registry is not None:
             skill_name = intent.get("skill") or intent.get("name")
-            executor = getattr(getattr(self, "skill_executor", None), "execute", None)
+            executor = getattr(self.skill_executor, "execute", None)
             if skill_name and callable(executor):
                 try:
                     result = executor(skill_name, user_input=user_input)
@@ -139,8 +140,8 @@ class LLMOptionalBrain(BaseBrain):
                     }
                     return response
                 except Exception as exc:
-                    # A failed native route must not silently execute something
-                    # else. Fall through to LLM only when it is available.
+                    # Do not silently execute a different action. If an LLM is
+                    # available it may recover the interaction as a fallback.
                     route = dict(route)
                     route["native_execution_error"] = str(exc)
                     self.last_cognitive_decision = route
@@ -158,10 +159,25 @@ class LLMOptionalBrain(BaseBrain):
             }
             return response
 
-        # The LLM branch is the fallback for language cognition. All existing
-        # Memory -> Experience -> Learning -> Evaluation -> Knowledge flow in
-        # BaseBrain remains untouched because super().think_and_respond()
-        # owns that pipeline.
+        # A known route currently still needs a language renderer because the
+        # organism has no deterministic natural-language renderer yet. Keep the
+        # route visible instead of pretending that an LLM-free answer exists.
+        if mode == "known" and getattr(self, "llm", None) is None:
+            response = "JARVIS has supporting knowledge, but its native language renderer is not available yet."
+            self.last_turn_trace = {
+                "source": source,
+                "query": user_input,
+                "response_preview": response,
+                "cognitive_route": route,
+                "llm_available": False,
+                "pipeline_success": True,
+                "timings": {"total": time() - turn_start, "memory": 0.0, "llm": 0.0},
+            }
+            return response
+
+        # The LLM branch is the fallback for language cognition. BaseBrain owns
+        # the existing Memory -> Experience -> Learning -> Evaluation ->
+        # Knowledge -> Consolidation pipeline, so this patch does not bypass it.
         if getattr(self, "llm", None) is not None:
             response = super().think_and_respond(
                 user_input, identity_profile=identity_profile, source=source
@@ -177,15 +193,14 @@ class LLMOptionalBrain(BaseBrain):
             pass
 
         try:
-            if hasattr(self, "_enqueue_learning"):
-                self._enqueue_learning(
-                    event_type="USER_INPUT_DEGRADED",
-                    context={"user_input": user_input, "cognitive_route": route},
-                    action={"mode": "llm_unavailable"},
-                    outcome={"status": "received_without_llm"},
-                    source=source,
-                    importance=0.2,
-                )
+            self._enqueue_learning(
+                event_type="USER_INPUT_DEGRADED",
+                context={"user_input": user_input, "cognitive_route": route},
+                action={"mode": "llm_unavailable"},
+                outcome={"status": "received_without_llm"},
+                source=source,
+                importance=0.2,
+            )
         except Exception:
             pass
 
