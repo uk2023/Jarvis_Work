@@ -9,9 +9,10 @@ from .heartbeat import Heartbeat
 from .lifecycle import Lifecycle
 
 # Brain is the central orchestrator. LLMOptionalBrain keeps that orchestrator
-# alive when the language model is unavailable; the LLM remains attachable by
-# CLI/web after boot and is still used for normal natural-language interaction.
+# alive when the language model is unavailable; CognitiveRouter now decides
+# whether an organism-native route can handle a turn before LLM fallback.
 from core.orchestration.llm_optional_brain import LLMOptionalBrain as Brain
+from core.orchestration.cognitive_router import CognitiveRouter
 
 from ..memory.memory_manager import MemoryManager
 from ..memory.memory_consolidator import MemoryConsolidator
@@ -88,6 +89,7 @@ def create_jarvis(
     skill_registry = SkillRegistry()
     skill_executor = SkillExecutor(skill_registry)
     skill_learner = SkillLearner()
+    cognitive_router = CognitiveRouter()
 
     brain = Brain(
         memory_manager=memory,
@@ -101,7 +103,12 @@ def create_jarvis(
         goal_manager=goal_manager,
         event_bus=events,
         internal_state=state,
+        cognitive_router=cognitive_router,
+        skill_registry=skill_registry,
     )
+
+    # Give Brain direct access to the executor for organism-native routes.
+    brain.skill_executor = skill_executor
 
     # Preserve the existing organism attachment/status mechanism.
     organs = {
@@ -120,6 +127,7 @@ def create_jarvis(
         "skill_registry": skill_registry,
         "skill_executor": skill_executor,
         "skill_learner": skill_learner,
+        "cognitive_router": cognitive_router,
         "brain": brain,
     }
 
