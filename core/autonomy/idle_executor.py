@@ -8,14 +8,15 @@ class IdleExecutor:
     """Bounded execution boundary for autonomous plan steps.
 
     Planner output is data, never executable code. Only explicitly registered
-    capabilities are callable. Confirmation-required or malformed steps are
-    rejected before side effects occur.
+    capabilities are callable. Confirmation-required steps never execute.
     """
 
-    VERSION = "0.1.0"
+    VERSION = "0.1.1"
 
     def __init__(self, capabilities: Optional[Mapping[str, Callable[..., Any]]] = None, event_bus=None):
-        self.capabilities = dict(capabilities or {})
+        # Keep a supplied mutable registry mapping live so newly learned skills
+        # become visible without rebuilding the organism.
+        self.capabilities = capabilities if capabilities is not None else {}
         self.events = event_bus
 
     def register(self, name: str, handler: Callable[..., Any]) -> None:
@@ -36,7 +37,6 @@ class IdleExecutor:
             "risk": step_data.get("risk", "unknown"),
             "duration": 0.0,
         }
-
         if step_data.get("requires_confirmation") is True:
             result["result"] = "confirmation_required"
             result["duration"] = time.time() - started
@@ -48,11 +48,9 @@ class IdleExecutor:
             result["duration"] = time.time() - started
             return result
 
-        handler = self.capabilities[capability]
         try:
-            value = handler(step_data)
+            result["result"] = self.capabilities[capability](step_data)
             result["success"] = True
-            result["result"] = value
             result["side_effects"] = list(step_data.get("declared_side_effects", []))
         except Exception as exc:
             result["result"] = str(exc)
