@@ -1,33 +1,13 @@
 from __future__ import annotations
 
-"""
-Evidence-driven cognitive routing for JARVIS.
-
-The router deliberately does NOT understand natural language and does NOT
-call an LLM. Its job is to answer one narrower orchestration question:
-
-    "Does the organism already have enough usable evidence/capability to
-     continue without external language cognition?"
-
-This is the first layer of the long-term architecture in which the LLM is
-an optional cognition/voice service rather than the owner of the Brain.
-
-Important design rule:
-    No keyword/query hardcoding lives here.
-
-The router consumes structured evidence produced by JARVIS organs. As those
-organs become better, the LLM dependency can decrease naturally without
-rewriting this router.
-"""
+"""Evidence-driven routing. The router never parses language or calls an LLM."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional
 
 
 @dataclass(frozen=True)
 class CognitiveDecision:
-    """Immutable decision returned to Brain."""
-
     mode: str
     confidence: float
     reason: str
@@ -45,20 +25,9 @@ class CognitiveDecision:
 
 
 class CognitiveRouter:
-    """
-    Routes a turn according to organism evidence.
+    """Choose a safe execution/cognition route from structured evidence."""
 
-    Supported modes:
-        known   -> organism has enough evidence for a deterministic path
-        tool    -> a registered capability should handle the turn
-        clarify -> evidence conflicts or is insufficient for safe action
-        llm     -> language cognition is genuinely required
-
-    The router never generates a response. Brain remains responsible for
-    orchestration and execution.
-    """
-
-    VERSION = "0.1.0"
+    VERSION = "0.2.0"
 
     def __init__(self, minimum_confidence: float = 0.80) -> None:
         self.minimum_confidence = max(0.0, min(1.0, float(minimum_confidence)))
@@ -76,10 +45,6 @@ class CognitiveRouter:
         except TypeError:
             return 1
 
-    @staticmethod
-    def _has_callable(value: Any, names: Iterable[str]) -> bool:
-        return any(callable(getattr(value, name, None)) for name in names)
-
     def decide(
         self,
         *,
@@ -88,16 +53,21 @@ class CognitiveRouter:
         skills: Any = None,
         identity: Any = None,
         goals: Any = None,
+        perception: Optional[Mapping[str, Any]] = None,
         explicit_intent: Optional[Mapping[str, Any]] = None,
     ) -> CognitiveDecision:
-        """Return an evidence-based routing decision.
+        """Route only from an input-matched structured perception.
 
-        `explicit_intent` is intentionally optional. When a future
-        perception/intent organ supplies structured meaning, this router can
-        consume it without changing its public contract.
+        `explicit_intent` remains as a compatibility input. New callers should
+        pass the complete PerceptionResult mapping through `perception`.
         """
         ctx = dict(context or {})
-        intent = dict(explicit_intent or {})
+        p = dict(perception or {})
+        intent = dict(p.get("intent") or explicit_intent or {})
+        p_input = p.get("user_input") or p.get("source_input")
+        input_matches = p_input == user_input if p_input is not None else False
+        p_confidence = float(p.get("confidence", intent.get("confidence", 0.0)) or 0.0)
+        p_confidence = max(0.0, min(1.0, p_confidence))
 
         memory_count = self._count(ctx.get("recent_experiences"))
         knowledge_count = self._count(ctx.get("relevant_knowledge"))
@@ -112,51 +82,29 @@ class CognitiveRouter:
             "available_skills": skill_count,
             "active_goals": goal_count,
             "structured_intent": bool(intent),
+            "perception_source": p.get("source"),
+            "perception_confidence": p_confidence,
+            "perception_matches_input": input_matches,
             "input_present": bool((user_input or "").strip()),
         }
 
-        # A structured intent plus a registered capability is the strongest
-        # current signal that the organism can execute without asking the LLM
-        # to interpret the request again.
-        if intent and skill_count:
-            confidence = 0.90
-            return CognitiveDecision(
-                mode="tool",
-                confidence=confidence,
-                reason="Structured intent and an available organism capability are present.",
-                evidence=evidence,
-                llm_required=False,
-            )
+        usable_perception = bool(intent) and input_matches and p_confidence >= self.minimum_confidence
 
-        # A strong direct knowledge/memory hit can support a deterministic
-        # retrieval path. We deliberately require multiple evidence signals;
-        # one fuzzy memory result must not silently become 'truth'.
-        if intent and (knowledge_count > 0 or memory_count > 0) and graph_count >= 0:
-            confidence = 0.84 if knowledge_count > 0 else 0.81
-            return CognitiveDecision(
-                mode="known",
-                confidence=confidence,
-                reason="Structured meaning is available and the organism has supporting stored evidence.",
-                evidence=evidence,
-                llm_required=False,
-            )
+        if usable_perception and intent.get("requires_confirmation") is True:
+            return CognitiveDecision("clarify", 0.95, "The structured intent requires confirmation before action.", evidence, False)
 
-        # Conflicting/empty evidence should not trigger an autonomous action.
-        # Brain may ask the LLM to interpret the language or ask the user for
-        # clarification depending on the eventual intent/evaluator layer.
-        if intent.get("requires_confirmation") is True:
-            return CognitiveDecision(
-                mode="clarify",
-                confidence=0.95,
-                reason="The structured intent explicitly requires confirmation before action.",
-                evidence=evidence,
-                llm_required=False,
-            )
+        if usable_perception and skill_count:
+            confidence = min(0.99, max(p_confidence, 0.90))
+            return CognitiveDecision("tool", confidence, "Perception identified a usable organism capability.", evidence, False)
+
+        if usable_perception and (knowledge_count > 0 or memory_count > 0):
+            confidence = min(0.95, max(p_confidence, 0.84))
+            return CognitiveDecision("known", confidence, "Perception is supported by stored organism evidence.", evidence, False)
 
         return CognitiveDecision(
-            mode="llm",
-            confidence=0.0,
-            reason="Current organism evidence is insufficient for a safe deterministic route.",
-            evidence=evidence,
-            llm_required=True,
+            "llm",
+            0.0,
+            "No sufficiently confident input-matched deterministic perception is available.",
+            evidence,
+            True,
         )
