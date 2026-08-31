@@ -17,7 +17,7 @@ from ..learning.experience_engine import ExperienceEngine
 from ..learning.self_evaluator import SelfEvaluator
 from ..learning.knowledge_builder import KnowledgeBuilder
 from ..learning.learning_coordinator import LearningCoordinator
-from ..learning.evolution_engine import EvolutionEngine
+from ..learning.controlled_evolution import ControlledEvolutionEngine
 from ..autonomy.curiosity import Curiosity
 from ..autonomy.goal_manager import GoalManager
 from ..autonomy.planner import Planner
@@ -52,7 +52,11 @@ def create_jarvis(identity=None, personality=None, values=None,
         skill_learner=skill_learner,
         skill_registry=skill_registry,
     )
-    evolution = EvolutionEngine(event_bus=events, internal_state=state, memory_manager=memory)
+    evolution = ControlledEvolutionEngine(
+        event_bus=events,
+        internal_state=state,
+        memory_manager=memory,
+    )
     goal_manager = GoalManager(store=memory.store)
     curiosity = Curiosity()
     scheduler = Scheduler()
