@@ -49,6 +49,128 @@ class LLMOptionalBrain(BaseBrain):
         """Attach the organism-owned executor without creating a duplicate."""
         self.skill_executor = skill_executor
 
+    def execute_autonomous_step(self, step: Dict[str, Any], goal: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Execute one planner-approved autonomous step through Brain.
+
+        Idle/autonomous execution must not bypass Brain and write its own
+        episode. Brain owns the action/response decision and hands the
+        completed outcome into the normal Experience -> Learning path.
+        """
+        started = time()
+        step_data = dict(step or {})
+        action_name = step_data.get("action")
+        skill_name = step_data.get("capability") or step_data.get("skill") or action_name
+
+        self._emit("BRAIN_CYCLE_STARTED", {
+            "source": "idle",
+            "goal": goal or {},
+            "step": step_data,
+        })
+
+        if step_data.get("requires_confirmation") is True:
+            result = {
+                "success": False,
+                "status": "blocked_pending_confirmation",
+                "action": action_name,
+                "result": "confirmation_required",
+            }
+            self.last_brain_decision = {
+                "mode": "native",
+                "source": "idle",
+                "status": "blocked_pending_confirmation",
+                "action": action_name,
+            }
+            self.last_action_response = result
+            self._emit("ACTION_RESPONSE_COMPLETED", result)
+            return result
+
+        if self.skill_executor is None or not skill_name:
+            result = {
+                "success": False,
+                "status": "no_capability",
+                "action": action_name,
+                "result": f"capability_not_available: {skill_name}",
+            }
+            self.last_brain_decision = {
+                "mode": "native",
+                "source": "idle",
+                "status": "no_capability",
+                "action": action_name,
+            }
+            self.last_action_response = result
+            self._emit("ACTION_RESPONSE_FAILED", result)
+            self._enqueue_learning(
+                event_type="AUTONOMOUS_STEP",
+                context={"goal": goal or {}, "step": step_data},
+                action={"skill": skill_name, "action": action_name},
+                outcome=result,
+                source="idle",
+                importance=0.3,
+            )
+            return result
+
+        try:
+            native_result = self.skill_executor.execute(skill_name, user_input=step_data.get("input", action_name))
+            result = {
+                "success": True,
+                "status": "completed",
+                "action": action_name,
+                "skill": skill_name,
+                "result": str(native_result),
+                "duration": time() - started,
+            }
+            self.last_brain_decision = {
+                "mode": "native",
+                "source": "idle",
+                "status": "completed",
+                "skill": skill_name,
+                "action_result": str(native_result),
+            }
+            self.last_action_response = result
+            self._emit("ACTION_RESPONSE_COMPLETED", result)
+            self._enqueue_learning(
+                event_type="AUTONOMOUS_STEP",
+                context={"goal": goal or {}, "step": step_data},
+                action={"skill": skill_name, "action": action_name, "result": str(native_result)},
+                outcome=result,
+                source="idle",
+                importance=0.5,
+            )
+            self._emit("BRAIN_CYCLE_COMPLETED", {
+                "source": "idle",
+                "brain_decision": self.last_brain_decision,
+                "action_response": result,
+                "duration": time() - started,
+            })
+            return result
+        except Exception as exc:
+            result = {
+                "success": False,
+                "status": "failed",
+                "action": action_name,
+                "skill": skill_name,
+                "result": str(exc),
+                "duration": time() - started,
+            }
+            self.last_brain_decision = {
+                "mode": "native",
+                "source": "idle",
+                "status": "failed",
+                "skill": skill_name,
+                "error": str(exc),
+            }
+            self.last_action_response = result
+            self._emit("ACTION_RESPONSE_FAILED", result)
+            self._enqueue_learning(
+                event_type="AUTONOMOUS_STEP",
+                context={"goal": goal or {}, "step": step_data},
+                action={"skill": skill_name, "action": action_name},
+                outcome=result,
+                source="idle",
+                importance=0.5,
+            )
+            return result
+
     def _perceive(self, user_input: str) -> Dict[str, Any]:
         context = self.build_context(query=user_input, recent_limit=3) if self.memory is not None else {}
         result = self.perception.perceive(user_input, context=context)
