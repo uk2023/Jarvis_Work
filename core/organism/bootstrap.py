@@ -23,7 +23,6 @@ from ..autonomy.goal_manager import GoalManager
 from ..autonomy.planner import Planner
 from ..autonomy.scheduler import Scheduler
 from ..autonomy.idle_loop import IdleLoop
-from ..autonomy.idle_executor import IdleExecutor
 from ..skills.skill_registry import SkillRegistry
 from ..skills.skill_executor import SkillExecutor
 from ..skills.skill_learner import SkillLearner
@@ -60,7 +59,6 @@ def create_jarvis(identity=None, personality=None, values=None,
     llm_bridge = HybridLLMBridge()
     planner = Planner(llm_bridge=llm_bridge)
     skill_executor = SkillExecutor(skill_registry)
-    idle_executor = IdleExecutor(capabilities=skill_registry.skills, event_bus=events)
     cognitive_router = CognitiveRouter()
     perception = PerceptionEngine(state=state)
     brain = Brain(
@@ -81,16 +79,22 @@ def create_jarvis(identity=None, personality=None, values=None,
         skill_executor=skill_executor,
         llm_bridge=llm_bridge,
     )
-    idle_loop = IdleLoop(goal_manager=goal_manager, curiosity=curiosity,
-                         planner=planner, scheduler=scheduler, state=state,
-                         event_bus=events, store=memory.store,
-                         executor=idle_executor)
+    idle_loop = IdleLoop(
+        goal_manager=goal_manager,
+        curiosity=curiosity,
+        planner=planner,
+        scheduler=scheduler,
+        state=state,
+        event_bus=events,
+        store=memory.store,
+        executor=brain.execute_autonomous_step,
+    )
     organs = {
         "memory": memory, "experience": experience_engine, "evaluator": evaluator,
         "knowledge_builder": knowledge_builder, "consolidator": consolidator,
         "learning": learning, "evolution": evolution, "curiosity": curiosity,
         "goal_manager": goal_manager, "planner": planner, "scheduler": scheduler,
-        "idle_loop": idle_loop, "idle_executor": idle_executor,
+        "idle_loop": idle_loop,
         "skill_registry": skill_registry, "skill_executor": skill_executor,
         "skill_learner": skill_learner, "perception": perception,
         "cognitive_router": cognitive_router, "brain": brain,
