@@ -8,6 +8,7 @@ from .event_bus import EventBus
 from .heartbeat import Heartbeat
 from .lifecycle import Lifecycle
 from core.orchestration.llm_optional_brain import LLMOptionalBrain as Brain
+from core.orchestration.llm_bridge import HybridLLMBridge
 from core.orchestration.cognitive_router import CognitiveRouter
 from core.orchestration.perception import PerceptionEngine
 from ..memory.memory_manager import MemoryManager
@@ -47,7 +48,8 @@ def create_jarvis(identity=None, personality=None, values=None,
     goal_manager = GoalManager(store=memory.store)
     curiosity = Curiosity()
     scheduler = Scheduler()
-    planner = Planner(llm_bridge=None)
+    llm_bridge = HybridLLMBridge()
+    planner = Planner(llm_bridge=llm_bridge)
     skill_registry = SkillRegistry()
     skill_executor = SkillExecutor(skill_registry)
     skill_learner = SkillLearner()
@@ -64,7 +66,8 @@ def create_jarvis(identity=None, personality=None, values=None,
                   evolution_engine=evolution, planner=planner, goal_manager=goal_manager,
                   event_bus=events, internal_state=state,
                   cognitive_router=cognitive_router, perception_engine=perception,
-                  skill_registry=skill_registry, skill_executor=skill_executor)
+                  skill_registry=skill_registry, skill_executor=skill_executor,
+                  llm_bridge=llm_bridge)
     organs = {
         "memory": memory, "experience": experience_engine, "evaluator": evaluator,
         "knowledge_builder": knowledge_builder, "consolidator": consolidator,
@@ -74,6 +77,7 @@ def create_jarvis(identity=None, personality=None, values=None,
         "skill_registry": skill_registry, "skill_executor": skill_executor,
         "skill_learner": skill_learner, "perception": perception,
         "cognitive_router": cognitive_router, "brain": brain,
+        "llm_bridge": llm_bridge,
     }
     jarvis = JarvisCore(identity=identity, personality=personality, values=values,
                         state=state, event_bus=events, heartbeat=heartbeat, organs=organs)
