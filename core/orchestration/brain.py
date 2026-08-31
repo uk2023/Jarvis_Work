@@ -394,21 +394,14 @@ class Brain:
         approx_tokens = len(context_prompt.split()) + len(cleaned_response.split())
         self.total_tokens_estimate += approx_tokens
 
-        # Rank-based similarity: hybrid_search already returns results
-        # ordered best-first, but doesn't preserve the underlying FAISS
-        # distance through to Brain. Rather than fabricate a precise
-        # score we don't have, expose the real ordering as a
-        # descending confidence band -- honest about what's known
-        # (the rank) vs not (the exact distance).
+        # Do not fabricate similarity scores. Preserve only real
+        # fields returned by the retrieval layer.
         vector_matches = []
-        for idx, item in enumerate(relevant_knowledge[:8]):
-            vector_matches.append({
-                "id": item.get("knowledge_id", f"k{idx}"),
-                "subject": item.get("subject"),
-                "predicate": item.get("predicate"),
-                "value": item.get("value"),
-                "similarity": round(max(0.35, 0.95 - idx * 0.08), 2),
-            })
+        for item in relevant_knowledge[:8]:
+            if isinstance(item, dict):
+                vector_matches.append(dict(item))
+            else:
+                vector_matches.append(item)
 
         graph_edges = []
         for rel in graph_relations[:12]:
@@ -425,6 +418,13 @@ class Brain:
             "source": source,
             "query": user_input,
             "response_preview": cleaned_response[:200],
+            # EXACT result returned by the single build_context() call above.
+            # CLI/web inspectors consume this; no second retrieval is performed.
+            "memory_context": {
+                "recent_experiences": recent_memories,
+                "relevant_knowledge": relevant_knowledge,
+                "graph_relations": graph_relations,
+            },
             "timings": {
                 "total": total_duration,
                 "memory": mem_duration,
