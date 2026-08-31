@@ -51,6 +51,15 @@ _global_jarvis_instance = None
 _frontend_process = None
 _cli_monitor = None
 
+CLI_COMMANDS = {
+    "/help": "Show available JARVIS CLI commands",
+    "/about": "Show JARVIS runtime and architecture information",
+    "/memory_inspect": "Inspect live semantic memory, FAISS/search and graph state",
+    "/trace_inspect": "Inspect the latest exact cognitive trace",
+    "/runtime_inspect": "Inspect live runtime, heartbeat, queues and metrics",
+    "/organ_inspect": "Inspect all attached organism organs and their state",
+}
+
 
 def print_banner():
     console.print(
@@ -61,6 +70,17 @@ def print_banner():
             subtitle="[dim]UK ARCHITECTURE WORKSPACE[/dim]",
         )
     )
+    print_cli_commands()
+
+
+def print_cli_commands():
+    table = Table(title="JARVIS CLI COMMANDS", border_style="cyan", header_style="bold cyan")
+    table.add_column("Command", style="bold yellow", width=22)
+    table.add_column("Purpose", style="white")
+    for command, description in CLI_COMMANDS.items():
+        table.add_row(command, description)
+    table.add_row("exit / quit", "Shutdown JARVIS")
+    console.print(table)
 
 
 def _safe_dict(value: Any) -> Dict[str, Any]:
@@ -154,6 +174,142 @@ def render_cognition_trace(brain: Any, trace: Optional[Dict[str, Any]], source: 
     return None
 
 
+def _brain(jarvis):
+    return jarvis.get_organ("brain") if hasattr(jarvis, "get_organ") else None
+
+
+def _memory(jarvis):
+    return jarvis.get_organ("memory") if hasattr(jarvis, "get_organ") else None
+
+
+def render_memory_inspection(jarvis):
+    """Inspect the live SemanticMemory instance using its public retrieval APIs.
+
+    The live inspection follows the public operations covered by
+    tests/test_faiss_semantic_memory.py: statistics/snapshot, lexical search,
+    semantic FAISS search and graph relations. It does not execute pytest or
+    create the test fixture's temporary database.
+    """
+    memory = _memory(jarvis)
+    if memory is None:
+        console.print(Panel("[bold red]Memory organ is not attached.[/bold red]", title="JARVIS MEMORY INSPECTION", border_style="red"))
+        return
+
+    table = Table(title="JARVIS MEMORY INSPECTION", border_style="magenta", header_style="bold magenta")
+    table.add_column("Metric", style="bold white", width=30)
+    table.add_column("Live Value", style="cyan")
+    table.add_row("Backend", type(memory).__name__)
+    table.add_row("Knowledge count", str(getattr(memory, "count", "unknown")))
+
+    try:
+        stats = memory.statistics() if hasattr(memory, "statistics") else {}
+        for key, value in _safe_dict(stats).items():
+            table.add_row(f"statistics.{key}", _fmt(value, 300))
+    except Exception as exc:
+        table.add_row("statistics", f"ERROR: {exc}")
+
+    try:
+        snap = memory.snapshot() if hasattr(memory, "snapshot") else {}
+        snap = _safe_dict(snap)
+        for key in ("count", "vector_count", "graph_edges", "max_knowledge"):
+            if key in snap:
+                table.add_row(f"snapshot.{key}", _fmt(snap[key], 300))
+    except Exception as exc:
+        table.add_row("snapshot", f"ERROR: {exc}")
+
+    console.print(table)
+
+    probe = "JARVIS"
+    retrieval = Table(title=f"MEMORY RETRIEVAL — {probe}", border_style="blue", header_style="bold cyan")
+    retrieval.add_column("Public API", width=22)
+    retrieval.add_column("Live Result", style="white")
+    operations = (
+        ("find", lambda: memory.find(probe)),
+        ("search", lambda: memory.search(probe)),
+        ("semantic_search", lambda: memory.semantic_search(probe, top_k=3)),
+        ("graph_relations", lambda: memory.get_graph_relations(probe)),
+    )
+    for api_name, operation in operations:
+        try:
+            retrieval.add_row(api_name, _fmt(operation(), 500))
+        except Exception as exc:
+            retrieval.add_row(api_name, f"ERROR: {exc}")
+    console.print(retrieval)
+
+
+def render_trace_inspection(jarvis):
+    brain = _brain(jarvis)
+    trace = getattr(brain, "last_turn_trace", None) if brain is not None else None
+    if trace:
+        query = trace.get("user_input") or trace.get("query") or "<latest>"
+        response = trace.get("response")
+        render_query_trace(brain, trace, source="cli", query=query, response=response)
+    else:
+        console.print(Panel("[yellow]No cognitive turn trace is currently available.[/yellow]", title="JARVIS TRACE INSPECTION", border_style="yellow"))
+
+
+def render_runtime_inspection(jarvis):
+    table = Table(title="JARVIS RUNTIME INSPECTION", border_style="green", header_style="bold green")
+    table.add_column("Runtime Signal", style="bold white", width=30)
+    table.add_column("Live State", style="cyan")
+    state = getattr(jarvis, "state", None)
+    state_data = {}
+    if state is not None:
+        try:
+            state_data = state.to_dict() if hasattr(state, "to_dict") else getattr(state, "__dict__", {})
+        except Exception:
+            state_data = {}
+    hb = _safe_dict(jarvis.heartbeat.status() if getattr(jarvis, "heartbeat", None) else {})
+    table.add_row("Runtime", "ONLINE")
+    table.add_row("Lifecycle", str(state_data.get("lifecycle", state_data.get("lifecycle_state", "ACTIVE"))))
+    table.add_row("Heartbeat", f"{'ALIVE' if hb.get('running', False) else 'STOPPED'} | beats={hb.get('beat_count', 0)}")
+    table.add_row("Idle", str(hb.get("is_idle", False)))
+    table.add_row("Last activity", str(state_data.get("last_activity_at", "unknown")))
+    table.add_row("Current mode", str(state_data.get("mode", "UNKNOWN")))
+    brain = _brain(jarvis)
+    if brain is not None and hasattr(brain, "status"):
+        try:
+            bs = _safe_dict(brain.status())
+            q = _safe_dict(bs.get("async_learning_queue", {}))
+            table.add_row("Learning queue", f"alive={q.get('alive', False)} pending={q.get('pending', 0)} processed={q.get('processed', 0)} failed={q.get('failed', 0)}")
+        except Exception as exc:
+            table.add_row("Brain status", f"ERROR: {exc}")
+    console.print(table)
+
+
+def render_about():
+    console.print(Panel(
+        "[bold cyan]JARVIS COGNITIVE OS v2026.1[/bold cyan]\n\n"
+        "[white]Runtime control surface for the UK modular cognitive organism.[/white]\n"
+        "Architecture: Perception → Cognition/Memory → Cognitive Router → Brain → Action/Response → Experience/Evaluation → Learning/Knowledge → Self-Evaluation → Evolution.\n\n"
+        "CLI inspection commands are diagnostic controls and do not enter the normal cognitive pipeline.",
+        title="ABOUT JARVIS",
+        border_style="cyan",
+    ))
+
+
+def handle_cli_command(jarvis, user_input: str) -> bool:
+    """Handle a slash command without entering the cognitive pipeline."""
+    command = user_input.strip().lower().split(None, 1)[0] if user_input.strip() else ""
+    if not command.startswith("/"):
+        return False
+    if command == "/help":
+        print_cli_commands()
+    elif command == "/about":
+        render_about()
+    elif command == "/memory_inspect":
+        render_memory_inspection(jarvis)
+    elif command == "/trace_inspect":
+        render_trace_inspection(jarvis)
+    elif command == "/runtime_inspect":
+        render_runtime_inspection(jarvis)
+    elif command == "/organ_inspect":
+        render_organ_matrix(jarvis)
+    else:
+        console.print(f"[bold red]Unknown JARVIS command:[/bold red] {command}\n[dim]Use /help for available commands.[/dim]")
+    return True
+
+
 def start_silent_heartbeat_sync(jarvis):
     def _sync_loop():
         while True:
@@ -234,7 +390,6 @@ def execute_cognitive_query(jarvis, user_input: str, source: str = "cli") -> str
         total_duration = time.time() - start_total
         trace = getattr(brain, "last_turn_trace", None) if brain is not None else None
 
-        # Exactly one query trace: the active Brain turn rendered by deep_inspector.
         render_query_trace(
             brain,
             trace,
@@ -494,7 +649,6 @@ def main():
 
     start_silent_heartbeat_sync(jarvis)
 
-    # Idle mode is always a live organism monitor, independent of web/dev mode.
     _cli_monitor = OrganismCLIMonitor(jarvis, console, interval=0.75)
     _cli_monitor.start()
 
@@ -524,16 +678,13 @@ def main():
             if lower in EXIT_COMMANDS:
                 console.print("\n[bold yellow]Terminated by operator. Shutting down system...[/bold yellow]")
                 break
+            if handle_cli_command(jarvis, user_input):
+                continue
             if lower == "status":
                 render_organ_matrix(jarvis)
                 continue
             if lower == "memory":
-                memory = jarvis.get_organ("memory") if hasattr(jarvis, "get_organ") else None
-                if memory and hasattr(memory, "statistics"):
-                    stats = memory.statistics()
-                    console.print(Panel(f"[bold cyan]Memory Statistics:[/bold cyan]\n{stats}", border_style="blue"))
-                else:
-                    console.print("[red]Memory metrics inaccessible.[/red]")
+                render_memory_inspection(jarvis)
                 continue
             execute_cognitive_query(jarvis, user_input, source="cli")
     except KeyboardInterrupt:
