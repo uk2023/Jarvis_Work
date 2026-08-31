@@ -50,7 +50,7 @@ class RenderingLLM:
 
 
 class KnownRouteRuntimeTests(unittest.TestCase):
-    def test_known_route_uses_llm_renderer_when_available(self):
+    def test_known_route_uses_legacy_llm_renderer_and_fact_signal(self):
         provider = RecallProvider()
         llm = RenderingLLM()
         brain = LLMOptionalBrain(
@@ -75,7 +75,10 @@ class KnownRouteRuntimeTests(unittest.TestCase):
 
         self.assertEqual(response, "LLM rendered known-memory response")
         self.assertEqual(provider.calls, 1)
-        self.assertEqual(llm.calls, 1)
+        # Legacy bridges expose only generate_response(). Brain's backward-
+        # compatible path makes one call for rendering and one for fact
+        # extraction; combined-capable bridges remain single-call.
+        self.assertEqual(llm.calls, 2)
         self.assertEqual(brain.last_cognitive_decision["mode"], "known")
 
 
