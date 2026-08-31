@@ -82,7 +82,7 @@ class LLMOptionalBrain(BaseBrain):
         lower = (user_input or "").strip().lower()
         if lower in {"status", "health", "ping"}:
             return "JARVIS Core ONLINE. LLM unavailable; operating in degraded cognitive mode."
-        return "JARVIS received the input, but no language cognition provider is currently available. Core organism remains active."
+        return "JARVIS received the input, but no LLM language cognition provider is currently available. Core organism remains active."
 
     def think_and_respond(self, user_input: str,
                           identity_profile: Optional[Dict[str, Any]] = None,
