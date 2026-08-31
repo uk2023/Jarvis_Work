@@ -63,10 +63,13 @@ class CognitiveRouter:
         """
         ctx = dict(context or {})
         p = dict(perception or {})
+        using_compat_intent = not p and explicit_intent is not None
         intent = dict(p.get("intent") or explicit_intent or {})
         p_input = p.get("user_input") or p.get("source_input")
-        input_matches = p_input == user_input if p_input is not None else False
+        input_matches = (p_input == user_input) if p_input is not None else using_compat_intent
         p_confidence = float(p.get("confidence", intent.get("confidence", 0.0)) or 0.0)
+        if using_compat_intent and "confidence" not in p and "confidence" not in intent:
+            p_confidence = 1.0
         p_confidence = max(0.0, min(1.0, p_confidence))
 
         memory_count = self._count(ctx.get("recent_experiences"))
@@ -82,7 +85,7 @@ class CognitiveRouter:
             "available_skills": skill_count,
             "active_goals": goal_count,
             "structured_intent": bool(intent),
-            "perception_source": p.get("source"),
+            "perception_source": p.get("source") if p else "explicit_intent",
             "perception_confidence": p_confidence,
             "perception_matches_input": input_matches,
             "input_present": bool((user_input or "").strip()),
