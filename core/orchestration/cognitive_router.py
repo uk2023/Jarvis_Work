@@ -16,7 +16,7 @@ class CognitiveDecision:
 
 class CognitiveRouter:
     """Choose a safe execution/cognition route from structured evidence."""
-    VERSION = "0.3.0"
+    VERSION = "0.4.0"
     def __init__(self, minimum_confidence: float = 0.80) -> None:
         self.minimum_confidence = max(0.0, min(1.0, float(minimum_confidence)))
     @staticmethod
@@ -29,8 +29,9 @@ class CognitiveRouter:
     def decide(self, *, user_input: str, context: Optional[Mapping[str, Any]] = None, skills: Any = None, identity: Any = None, goals: Any = None, perception: Optional[Mapping[str, Any]] = None, explicit_intent: Optional[Mapping[str, Any]] = None) -> CognitiveDecision:
         """Route only from structured, input-matched perception.
 
+        Explicit goals are a first-class cognition route. The router does
+        not plan or execute them; the Brain owns persistence and planning.
         Hybrid is explicit: perception must request execution_mode=hybrid.
-        The router never invents hybrid merely because skills and memory exist.
         """
         ctx = dict(context or {})
         p = dict(perception or {})
@@ -46,11 +47,14 @@ class CognitiveRouter:
         graph_count = self._count(ctx.get("graph_relations"))
         skill_count = self._count(skills)
         goal_count = self._count(goals)
+        perceived_goal = p.get("goal")
         requested_mode = str(intent.get("execution_mode") or intent.get("route") or "").strip().lower()
-        evidence = {"memory_matches": memory_count, "knowledge_matches": knowledge_count, "graph_relations": graph_count, "available_skills": skill_count, "active_goals": goal_count, "structured_intent": bool(intent), "perception_source": p.get("source") if p else "explicit_intent", "perception_confidence": p_confidence, "perception_matches_input": input_matches, "input_present": bool((user_input or "").strip()), "requested_execution_mode": requested_mode or None}
+        evidence = {"memory_matches": memory_count, "knowledge_matches": knowledge_count, "graph_relations": graph_count, "available_skills": skill_count, "active_goals": goal_count, "structured_intent": bool(intent), "perception_source": p.get("source") if p else "explicit_intent", "perception_confidence": p_confidence, "perception_matches_input": input_matches, "input_present": bool((user_input or "").strip()), "requested_execution_mode": requested_mode or None, "perceived_goal": perceived_goal}
         usable = bool(intent) and input_matches and p_confidence >= self.minimum_confidence
         if usable and intent.get("requires_confirmation") is True:
             return CognitiveDecision("clarify", 0.95, "The structured intent requires confirmation before action.", evidence, False)
+        if usable and perceived_goal:
+            return CognitiveDecision("goal", min(0.99, max(p_confidence, 0.90)), "Perception identified an explicit user goal; Brain owns goal persistence and planning.", evidence, False)
         if usable and requested_mode == "hybrid":
             if skill_count and intent.get("skill"):
                 return CognitiveDecision("hybrid", min(0.99, max(p_confidence, 0.90)), "Perception explicitly requested native capability execution with LLM synthesis.", evidence, True)
