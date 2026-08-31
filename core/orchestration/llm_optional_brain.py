@@ -1,10 +1,12 @@
-# -*- coding: utf-8 -*-
+from __future__ import annotations
+
 """LLM-optional Brain adapter: perception -> routing -> action/LLM."""
 from time import time
 from typing import Any, Dict, Optional
 
 from .brain import Brain as BaseBrain
 from .cognitive_router import CognitiveRouter
+from .cognition_wiring import CognitionWiring
 from .perception import PerceptionEngine, LLMPerceptionProvider
 from ..skills.skill_executor import SkillExecutor
 
@@ -21,6 +23,14 @@ class LLMOptionalBrain(BaseBrain):
         self.skill_registry = skill_registry
         self.skill_executor = SkillExecutor(skill_registry) if skill_registry is not None else None
         self.perception = perception_engine or PerceptionEngine(state=self.state)
+        self.cognition = CognitionWiring(
+            perception=self.perception,
+            router=self.cognitive_router,
+            memory=self.memory,
+            goal_manager=self.goal_manager,
+            skill_registry=self.skill_registry,
+            state=self.state,
+        )
         if self.llm is not None:
             self.set_llm_bridge(self.llm)
         self.last_cognitive_decision: Optional[Dict[str, Any]] = None
@@ -36,38 +46,30 @@ class LLMOptionalBrain(BaseBrain):
     def attach_skill_registry(self, skill_registry: Any) -> None:
         self.skill_registry = skill_registry
         self.skill_executor = SkillExecutor(skill_registry) if skill_registry is not None else None
+        self.cognition.skill_registry = skill_registry
+
+    def _run_cognition(self, user_input: str) -> Dict[str, Any]:
+        """Canonical single-pass Perception -> CognitiveRouter wiring."""
+        result = self.cognition.run(user_input)
+        perception = result.perception.as_dict()
+        route = result.decision.as_dict()
+        self.last_perception = perception
+        self.last_cognitive_decision = route
+        return route
 
     def _perceive(self, user_input: str) -> Dict[str, Any]:
-        context = self.build_context(query=user_input, recent_limit=3) if self.memory is not None else {}
-        result = self.perception.perceive(user_input, context=context)
-        payload = result.as_dict()
-        self.last_perception = payload
-        return payload
+        """Compatibility accessor; does not perform a second cognition pass."""
+        if self.cognition.last_pass is None or self.cognition.last_pass.perception.user_input != user_input:
+            self._run_cognition(user_input)
+        return self.last_perception or {}
 
-    def _route_cognition(self, user_input: str, perception: Dict[str, Any]) -> Dict[str, Any]:
-        context = self.build_context(query=user_input, recent_limit=3) if self.memory is not None else {}
-        goals = []
-        if self.goal_manager is not None:
-            current_goal = getattr(self.goal_manager, "current_goal", None)
-            if current_goal is not None:
-                goals = [current_goal]
-        decision = self.cognitive_router.decide(
-            user_input=user_input,
-            context=context,
-            skills=getattr(self.skill_registry, "skills", None),
-            identity=None,
-            goals=goals,
-            perception=perception,
-        )
-        payload = decision.as_dict()
-        self.last_cognitive_decision = payload
-        if self.state is not None:
-            try:
-                self.state.update(last_route=decision.mode, confidence=decision.confidence,
-                                  uncertainty=1.0 - decision.confidence)
-            except Exception:
-                pass
-        return payload
+    def _route_cognition(self, user_input: str, perception: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Compatibility accessor; reuses the current pass for the same input."""
+        if self.cognition.last_pass is None or self.cognition.last_pass.perception.user_input != user_input:
+            return self._run_cognition(user_input)
+        route = self.cognition.last_pass.decision.as_dict()
+        self.last_cognitive_decision = route
+        return route
 
     def _trace(self, user_input: str, response: str, route: Dict[str, Any],
                perception: Dict[str, Any], started: float, llm: bool) -> None:
@@ -88,8 +90,8 @@ class LLMOptionalBrain(BaseBrain):
                           identity_profile: Optional[Dict[str, Any]] = None,
                           source: str = "cli") -> str:
         started = time()
-        perception = self._perceive(user_input)
-        route = self._route_cognition(user_input, perception)
+        route = self._run_cognition(user_input)
+        perception = self.last_perception or {}
         mode = route.get("mode")
         intent = perception.get("intent") or {}
 
