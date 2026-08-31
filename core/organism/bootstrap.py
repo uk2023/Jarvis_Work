@@ -41,9 +41,16 @@ def create_jarvis(identity=None, personality=None, values=None,
     evaluator = SelfEvaluator(memory_manager=memory, event_bus=events, internal_state=state)
     knowledge_builder = KnowledgeBuilder(event_bus=events, internal_state=state, memory_manager=memory)
     consolidator = MemoryConsolidator(memory_manager=memory, event_bus=events)
-    learning = LearningCoordinator(evaluator=evaluator, knowledge_builder=knowledge_builder,
-                                   consolidator=consolidator, memory_manager=memory,
-                                   event_bus=events, internal_state=state)
+    skill_learner = SkillLearner()
+    learning = LearningCoordinator(
+        evaluator=evaluator,
+        knowledge_builder=knowledge_builder,
+        consolidator=consolidator,
+        memory_manager=memory,
+        event_bus=events,
+        internal_state=state,
+        skill_learner=skill_learner,
+    )
     evolution = EvolutionEngine(event_bus=events, internal_state=state, memory_manager=memory)
     goal_manager = GoalManager(store=memory.store)
     curiosity = Curiosity()
@@ -52,19 +59,27 @@ def create_jarvis(identity=None, personality=None, values=None,
     planner = Planner(llm_bridge=llm_bridge)
     skill_registry = SkillRegistry()
     skill_executor = SkillExecutor(skill_registry)
-    skill_learner = SkillLearner()
     idle_executor = IdleExecutor(capabilities=skill_registry.skills, event_bus=events)
     cognitive_router = CognitiveRouter()
     perception = PerceptionEngine(state=state)
-    brain = Brain(memory_manager=memory, experience_engine=experience_engine,
-                  learning_coordinator=learning, self_evaluator=evaluator,
-                  knowledge_builder=knowledge_builder, memory_consolidator=consolidator,
-                  evolution_engine=evolution, planner=planner, goal_manager=goal_manager,
-                  event_bus=events, internal_state=state,
-                  cognitive_router=cognitive_router, perception_engine=perception,
-                  skill_registry=skill_registry, skill_executor=skill_executor,
-                  llm_bridge=llm_bridge)
-    # Brain registers the shared LLM provider with the organism-owned perception engine.
+    brain = Brain(
+        memory_manager=memory,
+        experience_engine=experience_engine,
+        learning_coordinator=learning,
+        self_evaluator=evaluator,
+        knowledge_builder=knowledge_builder,
+        memory_consolidator=consolidator,
+        evolution_engine=evolution,
+        planner=planner,
+        goal_manager=goal_manager,
+        event_bus=events,
+        internal_state=state,
+        cognitive_router=cognitive_router,
+        perception_engine=perception,
+        skill_registry=skill_registry,
+        skill_executor=skill_executor,
+        llm_bridge=llm_bridge,
+    )
     idle_loop = IdleLoop(goal_manager=goal_manager, curiosity=curiosity,
                          planner=planner, scheduler=scheduler, state=state,
                          event_bus=events, store=memory.store,
