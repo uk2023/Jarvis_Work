@@ -1,0 +1,96 @@
+from __future__ import annotations
+
+from typing import Any, Callable, Dict, Optional
+
+from .evolution_engine import EvolutionEngine
+
+
+class ControlledEvolutionEngine(EvolutionEngine):
+    """
+    Runtime evolution boundary.
+
+    EvolutionEngine owns proposal/validation/approval state.
+    This subclass adds the final controlled handoff into explicit
+    runtime adapters. It never edits source files or imports arbitrary
+    code from a proposal.
+
+    Flow:
+        SelfEvaluator
+          ↓
+        Proposal → Validation → Approval
+          ↓
+        ControlledEvolutionEngine
+          ↓
+        Explicit registered adapter
+          ↓
+        APPLIED
+
+    An approved proposal without a registered adapter is deliberately
+    blocked instead of being marked APPLIED.
+    """
+
+    VERSION = "0.2.0-controlled"
+
+    def __init__(self, *args, adapters: Optional[Dict[str, Callable[..., Any]]] = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._adapters: Dict[str, Callable[..., Any]] = dict(adapters or {})
+        self.last_execution: Optional[Dict[str, Any]] = None
+
+    def register_adapter(self, target: str, handler: Callable[..., Any]) -> None:
+        if not target:
+            raise ValueError("Evolution adapter target cannot be empty.")
+        if not callable(handler):
+            raise TypeError("Evolution adapter must be callable.")
+        self._adapters[target] = handler
+
+    def unregister_adapter(self, target: str) -> None:
+        self._adapters.pop(target, None)
+
+    def adapter_targets(self):
+        return sorted(self._adapters)
+
+    def apply(self, proposal_id: str) -> Dict[str, Any]:
+        proposal = self._get_proposal(proposal_id)
+
+        if proposal.get("status") != "APPROVED":
+            raise RuntimeError("Only APPROVED proposals can be applied.")
+
+        target = str(proposal.get("target") or "")
+        handler = self._adapters.get(target)
+        if handler is None:
+            self._emit(
+                "EVOLUTION_APPLY_BLOCKED",
+                {"proposal_id": proposal_id, "target": target, "reason": "NO_ADAPTER"},
+            )
+            raise PermissionError(
+                f"No approved runtime adapter is registered for evolution target: {target}"
+            )
+
+        try:
+            result = handler(proposal)
+        except Exception as exc:
+            self.last_execution = {
+                "proposal_id": proposal_id,
+                "target": target,
+                "status": "FAILED",
+                "error": str(exc),
+            }
+            self._emit("EVOLUTION_APPLY_FAILED", self.last_execution)
+            raise
+
+        proposal["execution"] = result
+        applied = super().apply(proposal_id)
+        self.last_execution = {
+            "proposal_id": proposal_id,
+            "target": target,
+            "status": "APPLIED",
+            "result": result,
+        }
+        self._emit("EVOLUTION_EXECUTED", self.last_execution)
+        return applied
+
+    def statistics(self) -> Dict[str, Any]:
+        result = super().statistics()
+        result["adapter_targets"] = self.adapter_targets()
+        result["last_execution"] = self.last_execution
+        return result
