@@ -350,7 +350,7 @@ class MemoryManager:
     def list_all_knowledge(self, limit: int = 500) -> List[Knowledge]:
         """All stored facts, newest-updated first (see
         SemanticMemory.list_all). Used by the web dashboard's memory
-        browser, which needs the full set, not a search subset."""
+        browser, which needs the full set, not a search result subset."""
         return self.semantic.list_all(limit=limit)
 
     def forget_knowledge(self, knowledge_id: str) -> bool:
