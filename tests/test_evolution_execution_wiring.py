@@ -58,7 +58,7 @@ class EvolutionExecutionWiringTests(unittest.TestCase):
             "APPROVED",
         )
         self.assertEqual(evolution.statistics()["applied"], 0)
-        self.assertEqual(evolution.last_execution["status"], None if evolution.last_execution is None else evolution.last_execution.get("status"))
+        self.assertIsNone(evolution.last_execution)
 
 
 if __name__ == "__main__":
