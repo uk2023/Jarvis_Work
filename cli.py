@@ -40,6 +40,7 @@ from rich.tree import Tree
 from core.organism.bootstrap import start_jarvis, stop_jarvis
 from core.orchestration.llm_bridge import LlamaCppBridge
 from core.organism.organ_descriptions import describe_organ
+from core.memory.inspect_memory import render_dashboard as render_memory_dashboard
 from cli_runtime_monitor import OrganismCLIMonitor
 from deep_inspector import render_query_trace
 
@@ -183,58 +184,22 @@ def _memory(jarvis):
 
 
 def render_memory_inspection(jarvis):
-    """Inspect the live SemanticMemory instance using its public retrieval APIs.
+    """Run the repository's canonical semantic-memory diagnostic dashboard.
 
-    The live inspection follows the public operations covered by
-    tests/test_faiss_semantic_memory.py: statistics/snapshot, lexical search,
-    semantic FAISS search and graph relations. It does not execute pytest or
-    create the test fixture's temporary database.
+    This reuses core/memory/inspect_memory.py instead of duplicating its
+    SQLite/FAISS/graph inspection logic inside the CLI. The dashboard reads
+    the configured live database/index and does not invoke pytest fixtures.
     """
-    memory = _memory(jarvis)
-    if memory is None:
-        console.print(Panel("[bold red]Memory organ is not attached.[/bold red]", title="JARVIS MEMORY INSPECTION", border_style="red"))
-        return
-
-    table = Table(title="JARVIS MEMORY INSPECTION", border_style="magenta", header_style="bold magenta")
-    table.add_column("Metric", style="bold white", width=30)
-    table.add_column("Live Value", style="cyan")
-    table.add_row("Backend", type(memory).__name__)
-    table.add_row("Knowledge count", str(getattr(memory, "count", "unknown")))
-
     try:
-        stats = memory.statistics() if hasattr(memory, "statistics") else {}
-        for key, value in _safe_dict(stats).items():
-            table.add_row(f"statistics.{key}", _fmt(value, 300))
+        render_memory_dashboard()
     except Exception as exc:
-        table.add_row("statistics", f"ERROR: {exc}")
-
-    try:
-        snap = memory.snapshot() if hasattr(memory, "snapshot") else {}
-        snap = _safe_dict(snap)
-        for key in ("count", "vector_count", "graph_edges", "max_knowledge"):
-            if key in snap:
-                table.add_row(f"snapshot.{key}", _fmt(snap[key], 300))
-    except Exception as exc:
-        table.add_row("snapshot", f"ERROR: {exc}")
-
-    console.print(table)
-
-    probe = "JARVIS"
-    retrieval = Table(title=f"MEMORY RETRIEVAL — {probe}", border_style="blue", header_style="bold cyan")
-    retrieval.add_column("Public API", width=22)
-    retrieval.add_column("Live Result", style="white")
-    operations = (
-        ("find", lambda: memory.find(probe)),
-        ("search", lambda: memory.search(probe)),
-        ("semantic_search", lambda: memory.semantic_search(probe, top_k=3)),
-        ("graph_relations", lambda: memory.get_graph_relations(probe)),
-    )
-    for api_name, operation in operations:
-        try:
-            retrieval.add_row(api_name, _fmt(operation(), 500))
-        except Exception as exc:
-            retrieval.add_row(api_name, f"ERROR: {exc}")
-    console.print(retrieval)
+        console.print(
+            Panel(
+                f"[bold red]Memory inspection failed:[/bold red]\n{traceback.format_exc()}",
+                title="JARVIS MEMORY INSPECTION ERROR",
+                border_style="red",
+            )
+        )
 
 
 def render_trace_inspection(jarvis):
