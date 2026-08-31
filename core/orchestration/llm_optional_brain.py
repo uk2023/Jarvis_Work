@@ -118,12 +118,12 @@ class LLMOptionalBrain(BaseBrain):
             self._trace(user_input, response, route, perception, started, self.llm is not None)
             return response
 
-        if mode == "llm" and self.llm is not None:
+        if mode in {"llm", "known"} and self.llm is not None:
             response = super().think_and_respond(user_input, identity_profile=identity_profile, source=source)
             self._trace(user_input, response, route, perception, started, True)
             return response
 
-        if mode == "known" and self.llm is None:
+        if mode == "known":
             response = "JARVIS has supporting knowledge, but no native language renderer is available yet."
             self._trace(user_input, response, route, perception, started, False)
             return response
