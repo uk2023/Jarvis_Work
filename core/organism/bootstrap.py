@@ -87,7 +87,7 @@ def start_jarvis(identity=None, personality=None, values=None,
     jarvis = create_jarvis(identity=identity, personality=personality, values=values,
                            heartbeat_interval=heartbeat_interval, idle_threshold=idle_threshold)
     lifecycle = Lifecycle(jarvis, internal_state=jarvis.state,
-                          event_bus=jarvis.events, heartbeat=jarvis.heartbeat)
+                          event_bus=jarvis.event_bus, heartbeat=jarvis.heartbeat)
     jarvis.lifecycle = lifecycle
     lifecycle.start()
     jarvis.start()
@@ -101,7 +101,7 @@ def stop_jarvis(jarvis: Optional[JarvisCore]) -> None:
         lifecycle = getattr(jarvis, "lifecycle", None)
         if lifecycle is None:
             lifecycle = Lifecycle(jarvis, internal_state=jarvis.state,
-                                  event_bus=jarvis.events, heartbeat=jarvis.heartbeat)
+                                  event_bus=jarvis.event_bus, heartbeat=jarvis.heartbeat)
         lifecycle.stop()
     except Exception:
         try:
