@@ -48,6 +48,7 @@ from rich.tree import Tree
 from core.organism.bootstrap import start_jarvis, stop_jarvis
 from core.orchestration.llm_bridge import LlamaCppBridge
 from core.organism.organ_descriptions import describe_organ
+from cli_inspector import render_detailed_inspection
 
 console = Console()
 
@@ -182,11 +183,9 @@ def render_cognition_trace(brain: Any, trace: Optional[Dict[str, Any]], source: 
         f"[bold cyan]COGNITIVE EXECUTION TRACE[/bold cyan] [dim](Source: {source.upper()} | Total: {total_time:.3f}s)[/dim]"
     )
 
-    # 1. Input
     query = trace.get("query") or perception.get("user_input") or ""
     _stage(tree, "01", "USER INPUT / EVENT INGESTION", "[bold green]RECEIVED[/bold green]", f"source={source} | text={query}")
 
-    # 2. Perception
     pbranch = tree.add("[bold]02[/bold] [bold white]PERCEPTION[/bold white]  " + _status_text(bool(perception), "COMPLETED", "NOT EXPOSED"))
     if perception:
         pbranch.add(f"normalized_text: [white]{_fmt(perception.get('normalized_text', ''))}[/white]")
@@ -201,7 +200,6 @@ def render_cognition_trace(brain: Any, trace: Optional[Dict[str, Any]], source: 
     else:
         pbranch.add("[yellow]Perception result was not retained on the current Brain instance.[/yellow]")
 
-    # 3. Memory/context
     mem = _safe_dict(trace.get("memory"))
     mem_branch = tree.add(
         f"[bold]03[/bold] [bold white]MEMORY / CONTEXT[/bold white]  [bold green]COMPLETED[/bold green] [dim]({mem_time:.3f}s)[/dim]"
@@ -221,7 +219,6 @@ def render_cognition_trace(brain: Any, trace: Optional[Dict[str, Any]], source: 
     if graph_edges:
         mem_branch.add(f"graph edges exposed: {len(graph_edges)}")
 
-    # 4. Router
     rbranch = tree.add("[bold]04[/bold] [bold white]COGNITIVE ROUTER[/bold white]  " + _status_text(bool(route), "DECIDED", "NOT EXPOSED"))
     if route:
         rbranch.add(f"mode: [bold cyan]{route.get('mode', 'unknown')}[/bold cyan]")
@@ -234,7 +231,6 @@ def render_cognition_trace(brain: Any, trace: Optional[Dict[str, Any]], source: 
     else:
         rbranch.add("[yellow]Router decision was not retained on the current Brain instance.[/yellow]")
 
-    # 5. Brain decision
     bbranch = tree.add("[bold]05[/bold] [bold white]BRAIN DECISION[/bold white]  " + _status_text(bool(brain_decision), "RECORDED", "NOT EXPOSED"))
     if brain_decision:
         for key in ("mode", "status", "skill", "native_skill", "error"):
@@ -243,7 +239,6 @@ def render_cognition_trace(brain: Any, trace: Optional[Dict[str, Any]], source: 
     else:
         bbranch.add("[yellow]No explicit Brain decision record exposed.[/yellow]")
 
-    # 6. Action/response
     abranch = tree.add("[bold]06[/bold] [bold white]ACTION / RESPONSE[/bold white]  " + _status_text(bool(action_response), "COMPLETED", "NOT EXPOSED"))
     if action_response:
         abranch.add(f"mode: {action_response.get('mode', 'unknown')} | status: {action_response.get('status', 'unknown')}")
@@ -255,7 +250,6 @@ def render_cognition_trace(brain: Any, trace: Optional[Dict[str, Any]], source: 
     else:
         abranch.add(f"response preview: [white]{_fmt(trace.get('response_preview', ''), 500)}[/white]")
 
-    # 7. Experience/evaluation boundary
     memory_signal = trace.get("memory_signal")
     ebranch = tree.add("[bold]07[/bold] [bold white]EXPERIENCE / EVALUATION[/bold white]  " + _status_text(bool(trace), "HANDOFF OBSERVED", "NOT EXPOSED"))
     if trace:
@@ -264,7 +258,6 @@ def render_cognition_trace(brain: Any, trace: Optional[Dict[str, Any]], source: 
     else:
         ebranch.add("No turn trace available.")
 
-    # 8. Learning / knowledge
     lbranch = tree.add("[bold]08[/bold] [bold white]LEARNING / KNOWLEDGE[/bold white]  " + _status_text(bool(trace.get("pipeline_success")), "QUEUED/PROCESSED", "NOT CONFIRMED"))
     queue = _safe_dict(trace.get("learning_queue"))
     if queue:
@@ -277,15 +270,12 @@ def render_cognition_trace(brain: Any, trace: Optional[Dict[str, Any]], source: 
         lbranch.add("no candidate fact detected this turn")
     lbranch.add("persistence acceptance is owned by KnowledgeBuilder/SemanticMemory, not the CLI")
 
-    # 9. Self-evaluation
     sebranch = tree.add("[bold]09[/bold] [bold white]SELF-EVALUATION[/bold white]  [bold yellow]NOT EXPOSED[/bold yellow]")
     sebranch.add("No per-turn self-evaluation result is currently published into last_turn_trace.")
 
-    # 10. Evolution
     evbranch = tree.add("[bold]10[/bold] [bold white]EVOLUTION[/bold white]  [bold yellow]NOT EXPOSED[/bold yellow]")
     evbranch.add("Evolution organ may be running, but this turn has no explicit evolution result in the trace.")
 
-    # Timing / diagnostics
     diag = tree.add("[bold]RUNTIME METRICS[/bold]")
     diag.add(f"LLM inference: {llm_time:.3f}s")
     diag.add(f"Total turn: {total_time:.3f}s")
@@ -392,6 +382,13 @@ def execute_cognitive_query(jarvis, user_input: str, source: str = "cli") -> str
         total_duration = time.time() - start_total
         trace = getattr(brain, "last_turn_trace", None) if brain is not None else None
         render_cognition_trace(brain, trace, source=source)
+        render_detailed_inspection(
+            brain,
+            trace,
+            source=source,
+            query=user_input,
+            response=reply,
+        )
 
         if error_stack:
             console.print(
