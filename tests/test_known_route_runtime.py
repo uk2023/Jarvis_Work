@@ -8,7 +8,13 @@ from core.orchestration.perception import PerceptionEngine, PerceptionResult
 
 
 class MemoryWithEvidence:
-    def build_context(self, query=None, recent_limit=3):
+    def build_context(
+        self,
+        query=None,
+        subject=None,
+        recent_limit=3,
+        knowledge_limit=10,
+    ):
         return {
             "recent_experiences": [{"id": 1, "text": "known fact"}],
             "relevant_knowledge": [],
