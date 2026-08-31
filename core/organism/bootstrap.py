@@ -64,7 +64,7 @@ def create_jarvis(identity=None, personality=None, values=None,
                   evolution_engine=evolution, planner=planner, goal_manager=goal_manager,
                   event_bus=events, internal_state=state,
                   cognitive_router=cognitive_router, perception_engine=perception,
-                  skill_registry=skill_registry)
+                  skill_registry=skill_registry, skill_executor=skill_executor)
     organs = {
         "memory": memory, "experience": experience_engine, "evaluator": evaluator,
         "knowledge_builder": knowledge_builder, "consolidator": consolidator,

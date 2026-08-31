@@ -13,11 +13,11 @@ class LLMOptionalBrain(BaseBrain):
     """Brain whose language cognition is a replaceable perception provider."""
     VERSION = getattr(BaseBrain, "VERSION", "unknown") + "+perception-router"
 
-    def __init__(self, *args, cognitive_router=None, perception_engine=None, skill_registry=None, **kwargs):
+    def __init__(self, *args, cognitive_router=None, perception_engine=None, skill_registry=None, skill_executor=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.cognitive_router = cognitive_router or CognitiveRouter()
         self.skill_registry = skill_registry
-        self.skill_executor = SkillExecutor(skill_registry) if skill_registry is not None else None
+        self.skill_executor = skill_executor if skill_executor is not None else (SkillExecutor(skill_registry) if skill_registry is not None else None)
         self.perception = perception_engine or PerceptionEngine(state=self.state)
         if self.llm is not None:
             self.set_llm_bridge(self.llm)
@@ -44,6 +44,10 @@ class LLMOptionalBrain(BaseBrain):
     def attach_skill_registry(self, skill_registry: Any) -> None:
         self.skill_registry = skill_registry
         self.skill_executor = SkillExecutor(skill_registry) if skill_registry is not None else None
+
+    def attach_skill_executor(self, skill_executor: Any) -> None:
+        """Attach the organism-owned executor without creating a duplicate."""
+        self.skill_executor = skill_executor
 
     def _perceive(self, user_input: str) -> Dict[str, Any]:
         context = self.build_context(query=user_input, recent_limit=3) if self.memory is not None else {}
