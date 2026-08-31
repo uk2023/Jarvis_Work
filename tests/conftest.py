@@ -1,19 +1,16 @@
-from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
 
 @pytest.fixture(autouse=True)
-def mock_sentence_transformer(monkeypatch):
-    """Bypasses heavy model loading and returns mock embeddings instantly."""
+def mock_embedder(monkeypatch):
+    """Use a lightweight fake ONNX embedder for tests."""
 
     class FakeEmbedder:
-
         def get_embedding_dimension(self):
             return 384
 
         def get_sentence_embedding_dimension(self):
-            """Alias for SentenceTransformer compatibility."""
             return self.get_embedding_dimension()
 
         def encode(self, sentences, **kwargs):
@@ -22,6 +19,6 @@ def mock_sentence_transformer(monkeypatch):
             return np.zeros((len(sentences), 384), dtype=np.float32)
 
     monkeypatch.setattr(
-        "core.memory.semantic_memory.SentenceTransformer",
-        lambda model_name: FakeEmbedder(),
+        "core.memory.semantic_memory.FastONNXEmbedder",
+        lambda *args, **kwargs: FakeEmbedder(),
     )
