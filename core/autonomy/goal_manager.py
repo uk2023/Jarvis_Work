@@ -19,7 +19,9 @@ class GoalManager:
             "origin": str,       # "user" | "curiosity" | "self"
             "created_at": float,
             "updated_at": float,
-            "progress": list[str],   # short log of progress notes
+            "progress": list[dict],
+            "plan": list[dict],
+            "step_index": int,
         }
 
     No LLM calls happen here. This module only manages bookkeeping;
@@ -81,6 +83,8 @@ class GoalManager:
             "created_at": now,
             "updated_at": now,
             "progress": [],
+            "plan": [],
+            "step_index": 0,
         }
 
         self.goals.append(goal)
@@ -104,7 +108,26 @@ class GoalManager:
         if goal is None:
             return None
 
-        goal["progress"].append({"note": note, "timestamp": time.time()})
+        goal.setdefault("progress", []).append({"note": note, "timestamp": time.time()})
+        goal["updated_at"] = time.time()
+        self._save()
+        return goal
+
+    def set_plan(self, goal_id: str, plan: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        goal = self._find(goal_id)
+        if goal is None:
+            return None
+        goal["plan"] = list(plan or [])
+        goal["step_index"] = 0
+        goal["updated_at"] = time.time()
+        self._save()
+        return goal
+
+    def advance_step(self, goal_id: str) -> Optional[Dict[str, Any]]:
+        goal = self._find(goal_id)
+        if goal is None:
+            return None
+        goal["step_index"] = int(goal.get("step_index", 0)) + 1
         goal["updated_at"] = time.time()
         self._save()
         return goal
@@ -128,6 +151,14 @@ class GoalManager:
             if g["id"] == goal_id:
                 return g
         return None
+
+    @property
+    def current_goal(self) -> Optional[Dict[str, Any]]:
+        """Return the highest-priority active goal for cognition context."""
+        active = [g for g in self.goals if g.get("status") == "active"]
+        if not active:
+            return None
+        return sorted(active, key=lambda g: (-g.get("priority", 0.0), g.get("created_at", 0.0)))[0]
 
     def pending(self) -> List[Dict[str, Any]]:
         return [g for g in self.goals if g.get("status") in ("pending", "active")]
