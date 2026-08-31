@@ -27,7 +27,7 @@ class CognitiveDecision:
 class CognitiveRouter:
     """Choose a safe execution/cognition route from structured evidence."""
 
-    VERSION = "0.2.0"
+    VERSION = "0.2.1"
 
     def __init__(self, minimum_confidence: float = 0.80) -> None:
         self.minimum_confidence = max(0.0, min(1.0, float(minimum_confidence)))
@@ -56,17 +56,28 @@ class CognitiveRouter:
         perception: Optional[Mapping[str, Any]] = None,
         explicit_intent: Optional[Mapping[str, Any]] = None,
     ) -> CognitiveDecision:
-        """Route only from an input-matched structured perception.
+        """Route from structured evidence.
 
-        `explicit_intent` remains as a compatibility input. New callers should
-        pass the complete PerceptionResult mapping through `perception`.
+        `perception` is the preferred contract and must match the current input
+        with sufficient confidence. `explicit_intent` is retained as a narrow
+        compatibility path for older callers/tests that already provide a
+        trusted structured intent but do not yet construct PerceptionResult.
         """
         ctx = dict(context or {})
         p = dict(perception or {})
         intent = dict(p.get("intent") or explicit_intent or {})
+
+        # Compatibility: an explicit structured intent is already upstream
+        # evidence. Do not manufacture a PerceptionResult, but allow the router
+        # to consume it when no perception object was supplied. Once perception
+        # is supplied, its input-match/confidence contract is authoritative.
+        compatibility_intent = perception is None and bool(explicit_intent)
         p_input = p.get("user_input") or p.get("source_input")
-        input_matches = p_input == user_input if p_input is not None else False
-        p_confidence = float(p.get("confidence", intent.get("confidence", 0.0)) or 0.0)
+        input_matches = p_input == user_input if p_input is not None else compatibility_intent
+        if compatibility_intent:
+            p_confidence = 1.0
+        else:
+            p_confidence = float(p.get("confidence", intent.get("confidence", 0.0)) or 0.0)
         p_confidence = max(0.0, min(1.0, p_confidence))
 
         memory_count = self._count(ctx.get("recent_experiences"))
@@ -86,6 +97,7 @@ class CognitiveRouter:
             "perception_confidence": p_confidence,
             "perception_matches_input": input_matches,
             "input_present": bool((user_input or "").strip()),
+            "explicit_intent_compatibility": compatibility_intent,
         }
 
         usable_perception = bool(intent) and input_matches and p_confidence >= self.minimum_confidence
