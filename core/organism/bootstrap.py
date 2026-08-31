@@ -42,6 +42,7 @@ def create_jarvis(identity=None, personality=None, values=None,
     knowledge_builder = KnowledgeBuilder(event_bus=events, internal_state=state, memory_manager=memory)
     consolidator = MemoryConsolidator(memory_manager=memory, event_bus=events)
     skill_learner = SkillLearner()
+    skill_registry = SkillRegistry()
     learning = LearningCoordinator(
         evaluator=evaluator,
         knowledge_builder=knowledge_builder,
@@ -50,6 +51,7 @@ def create_jarvis(identity=None, personality=None, values=None,
         event_bus=events,
         internal_state=state,
         skill_learner=skill_learner,
+        skill_registry=skill_registry,
     )
     evolution = EvolutionEngine(event_bus=events, internal_state=state, memory_manager=memory)
     goal_manager = GoalManager(store=memory.store)
@@ -57,7 +59,6 @@ def create_jarvis(identity=None, personality=None, values=None,
     scheduler = Scheduler()
     llm_bridge = HybridLLMBridge()
     planner = Planner(llm_bridge=llm_bridge)
-    skill_registry = SkillRegistry()
     skill_executor = SkillExecutor(skill_registry)
     idle_executor = IdleExecutor(capabilities=skill_registry.skills, event_bus=events)
     cognitive_router = CognitiveRouter()
