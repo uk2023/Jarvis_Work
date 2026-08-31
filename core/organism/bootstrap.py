@@ -89,6 +89,16 @@ def create_jarvis(identity=None, personality=None, values=None,
         store=memory.store,
         executor=brain.execute_autonomous_step,
     )
+
+    # Heartbeat remains infrastructure-only. Bootstrap connects its
+    # idle signal to the already-wired IdleLoop through EventBus.
+    def _on_heartbeat(event) -> None:
+        payload = getattr(event, "payload", {}) or {}
+        if payload.get("idle"):
+            idle_loop.step()
+
+    events.subscribe("HEARTBEAT", _on_heartbeat)
+
     organs = {
         "memory": memory, "experience": experience_engine, "evaluator": evaluator,
         "knowledge_builder": knowledge_builder, "consolidator": consolidator,
