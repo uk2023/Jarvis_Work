@@ -56,10 +56,6 @@ def create_jarvis(identity=None, personality=None, values=None,
     idle_executor = IdleExecutor(capabilities=skill_registry.skills, event_bus=events)
     cognitive_router = CognitiveRouter()
     perception = PerceptionEngine(state=state)
-    idle_loop = IdleLoop(goal_manager=goal_manager, curiosity=curiosity,
-                         planner=planner, scheduler=scheduler, state=state,
-                         event_bus=events, store=memory.store,
-                         executor=idle_executor)
     brain = Brain(memory_manager=memory, experience_engine=experience_engine,
                   learning_coordinator=learning, self_evaluator=evaluator,
                   knowledge_builder=knowledge_builder, memory_consolidator=consolidator,
@@ -68,6 +64,11 @@ def create_jarvis(identity=None, personality=None, values=None,
                   cognitive_router=cognitive_router, perception_engine=perception,
                   skill_registry=skill_registry, skill_executor=skill_executor,
                   llm_bridge=llm_bridge)
+    # Brain registers the shared LLM provider with the organism-owned perception engine.
+    idle_loop = IdleLoop(goal_manager=goal_manager, curiosity=curiosity,
+                         planner=planner, scheduler=scheduler, state=state,
+                         event_bus=events, store=memory.store,
+                         executor=idle_executor)
     organs = {
         "memory": memory, "experience": experience_engine, "evaluator": evaluator,
         "knowledge_builder": knowledge_builder, "consolidator": consolidator,
