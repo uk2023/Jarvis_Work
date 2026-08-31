@@ -1,17 +1,10 @@
 # -*- coding: utf-8 -*-
 """JARVIS terminal/runtime control interface.
 
-The CLI is intentionally a diagnostic surface, not a second cognition engine.
-It reads the organism's real runtime state and trace objects and renders the
-same lifecycle that the web runtime consumes:
-
-USER INPUT -> PERCEPTION -> MEMORY/CONTEXT -> COGNITIVE ROUTER ->
-BRAIN DECISION -> ACTION/RESPONSE -> EXPERIENCE/EVALUATION ->
-LEARNING/KNOWLEDGE -> SELF-EVALUATION -> EVOLUTION.
-
-No stage is allowed to manufacture success data. If the current runtime does
-not expose a stage-level result yet, the CLI marks it as NOT EXPOSED rather
-than inventing telemetry.
+The CLI is intentionally a runtime control surface, not a second cognition
+engine. While idle it continuously monitors the organism's real lifecycle and
+organ health. When a query arrives, the active Brain produces the single
+cognitive turn and deep_inspector.py renders that exact turn data.
 """
 
 import os
@@ -26,7 +19,6 @@ import subprocess
 import urllib.request
 from typing import Any, Dict, Optional
 
-# --- System & Environment Setup ---
 os.environ["OMP_NUM_THREADS"] = "2"
 os.environ["OPENBLAS_NUM_THREADS"] = "2"
 os.environ["MKL_NUM_THREADS"] = "2"
@@ -48,22 +40,23 @@ from rich.tree import Tree
 from core.organism.bootstrap import start_jarvis, stop_jarvis
 from core.orchestration.llm_bridge import LlamaCppBridge
 from core.organism.organ_descriptions import describe_organ
-from cli_inspector import render_detailed_inspection
+from cli_runtime_monitor import OrganismCLIMonitor
+from deep_inspector import render_query_trace
 
 console = Console()
 
-# --- Global State & Threading Synchronization ---
 web_event_broadcaster = None
 model_lock = threading.Lock()
 _global_jarvis_instance = None
 _frontend_process = None
+_cli_monitor = None
 
 
 def print_banner():
     console.print(
         Panel.fit(
             "[bold cyan]JARVIS COGNITIVE OS[/bold cyan] [dim]v2026.1[/dim]\n"
-            "[dim white]Real-time Organism Runtime & Cognitive Lifecycle Diagnostics[/dim white]",
+            "[dim white]Real-time Organism Runtime & Cognitive Lifecycle Monitor[/dim white]",
             border_style="cyan",
             subtitle="[dim]UK ARCHITECTURE WORKSPACE[/dim]",
         )
@@ -157,144 +150,8 @@ def render_organ_matrix(jarvis):
 
 
 def render_cognition_trace(brain: Any, trace: Optional[Dict[str, Any]], source: str = "cli"):
-    """Render the complete observable lifecycle for the last turn.
-
-    Perception/router data are read from LLMOptionalBrain's dedicated runtime
-    fields because BaseBrain's final trace is allowed to contain only its own
-    response/learning telemetry. This keeps the CLI truthful while still
-    showing the entire architecture from input to evolution boundary.
-    """
-    trace = _safe_dict(trace)
-    perception = _safe_dict(getattr(brain, "last_perception", None))
-    route = _safe_dict(getattr(brain, "last_cognitive_decision", None))
-    brain_decision = _safe_dict(getattr(brain, "last_brain_decision", None))
-    action_response = _safe_dict(getattr(brain, "last_action_response", None))
-
-    if not trace and not perception and not route and not brain_decision:
-        console.print(Panel("[dim]No cognitive trace data available for this turn.[/dim]", border_style="dim"))
-        return
-
-    timings = _safe_dict(trace.get("timings"))
-    total_time = float(timings.get("total", 0.0) or 0.0)
-    mem_time = float(timings.get("memory", 0.0) or 0.0)
-    llm_time = float(timings.get("llm", 0.0) or 0.0)
-
-    tree = Tree(
-        f"[bold cyan]COGNITIVE EXECUTION TRACE[/bold cyan] [dim](Source: {source.upper()} | Total: {total_time:.3f}s)[/dim]"
-    )
-
-    query = trace.get("query") or perception.get("user_input") or ""
-    _stage(tree, "01", "USER INPUT / EVENT INGESTION", "[bold green]RECEIVED[/bold green]", f"source={source} | text={query}")
-
-    pbranch = tree.add("[bold]02[/bold] [bold white]PERCEPTION[/bold white]  " + _status_text(bool(perception), "COMPLETED", "NOT EXPOSED"))
-    if perception:
-        pbranch.add(f"normalized_text: [white]{_fmt(perception.get('normalized_text', ''))}[/white]")
-        pbranch.add(f"intent: [cyan]{_fmt(perception.get('intent', {}))}[/cyan]")
-        pbranch.add(f"entities: [cyan]{_fmt(perception.get('entities', {}))}[/cyan]")
-        pbranch.add(f"goal: [cyan]{_fmt(perception.get('goal'))}[/cyan]")
-        pbranch.add(f"requested_capability: [cyan]{_fmt(perception.get('requested_capability'))}[/cyan]")
-        pbranch.add(f"speech_act: [cyan]{_fmt(perception.get('speech_act'))}[/cyan]")
-        pbranch.add(f"language: [cyan]{_fmt(perception.get('language'))}[/cyan]")
-        pbranch.add(f"confidence={perception.get('confidence', 0.0)} | uncertainty={perception.get('uncertainty', 1.0)} | provider={perception.get('source', 'unknown')}")
-        pbranch.add(f"reason: [dim]{_fmt(perception.get('reason', ''))}[/dim]")
-    else:
-        pbranch.add("[yellow]Perception result was not retained on the current Brain instance.[/yellow]")
-
-    mem = _safe_dict(trace.get("memory"))
-    mem_branch = tree.add(
-        f"[bold]03[/bold] [bold white]MEMORY / CONTEXT[/bold white]  [bold green]COMPLETED[/bold green] [dim]({mem_time:.3f}s)[/dim]"
-    )
-    mem_branch.add(f"recent experiences retrieved: {mem.get('recent_experiences', 0)}")
-    mem_branch.add(f"semantic knowledge retrieved: {mem.get('relevant_knowledge', 0)}")
-    mem_branch.add(f"knowledge graph relations: {mem.get('graph_relations', 0)}")
-    vector_matches = trace.get("vector_matches", [])
-    if vector_matches:
-        top = vector_matches[0]
-        mem_branch.add(
-            f"top retrieved fact: {top.get('subject')} -> {top.get('predicate')} -> {top.get('value')} | rank #1"
-        )
-    else:
-        mem_branch.add("vector matches: none exposed for this turn")
-    graph_edges = trace.get("graph_edges", [])
-    if graph_edges:
-        mem_branch.add(f"graph edges exposed: {len(graph_edges)}")
-
-    rbranch = tree.add("[bold]04[/bold] [bold white]COGNITIVE ROUTER[/bold white]  " + _status_text(bool(route), "DECIDED", "NOT EXPOSED"))
-    if route:
-        rbranch.add(f"mode: [bold cyan]{route.get('mode', 'unknown')}[/bold cyan]")
-        if route.get("reason") is not None:
-            rbranch.add(f"reason: {_fmt(route.get('reason'))}")
-        if route.get("confidence") is not None:
-            rbranch.add(f"confidence={route.get('confidence')} | uncertainty={route.get('uncertainty', 1.0 - float(route.get('confidence', 0.0) or 0.0))}")
-        if route.get("alternatives") is not None:
-            rbranch.add(f"alternatives: {_fmt(route.get('alternatives'))}")
-    else:
-        rbranch.add("[yellow]Router decision was not retained on the current Brain instance.[/yellow]")
-
-    bbranch = tree.add("[bold]05[/bold] [bold white]BRAIN DECISION[/bold white]  " + _status_text(bool(brain_decision), "RECORDED", "NOT EXPOSED"))
-    if brain_decision:
-        for key in ("mode", "status", "skill", "native_skill", "error"):
-            if key in brain_decision:
-                bbranch.add(f"{key}: {_fmt(brain_decision[key])}")
-    else:
-        bbranch.add("[yellow]No explicit Brain decision record exposed.[/yellow]")
-
-    abranch = tree.add("[bold]06[/bold] [bold white]ACTION / RESPONSE[/bold white]  " + _status_text(bool(action_response), "COMPLETED", "NOT EXPOSED"))
-    if action_response:
-        abranch.add(f"mode: {action_response.get('mode', 'unknown')} | status: {action_response.get('status', 'unknown')}")
-        if action_response.get("action") is not None:
-            abranch.add(f"action: {_fmt(action_response.get('action'))}")
-        if action_response.get("error") is not None:
-            abranch.add(f"error: [red]{_fmt(action_response.get('error'))}[/red]")
-        abranch.add(f"response: [white]{_fmt(action_response.get('response', ''), 500)}[/white]")
-    else:
-        abranch.add(f"response preview: [white]{_fmt(trace.get('response_preview', ''), 500)}[/white]")
-
-    memory_signal = trace.get("memory_signal")
-    ebranch = tree.add("[bold]07[/bold] [bold white]EXPERIENCE / EVALUATION[/bold white]  " + _status_text(bool(trace), "HANDOFF OBSERVED", "NOT EXPOSED"))
-    if trace:
-        ebranch.add("completed interaction was handed to Brain learning boundary")
-        ebranch.add(f"memory signal: {_fmt(memory_signal) if memory_signal else 'none detected'}")
-    else:
-        ebranch.add("No turn trace available.")
-
-    lbranch = tree.add("[bold]08[/bold] [bold white]LEARNING / KNOWLEDGE[/bold white]  " + _status_text(bool(trace.get("pipeline_success")), "QUEUED/PROCESSED", "NOT CONFIRMED"))
-    queue = _safe_dict(trace.get("learning_queue"))
-    if queue:
-        lbranch.add(
-            f"async queue: alive={queue.get('alive', '?')} | pending={queue.get('pending', '?')} | processed={queue.get('processed', '?')} | failed={queue.get('failed', '?')} | dropped={queue.get('dropped', '?')}"
-        )
-    if memory_signal:
-        lbranch.add(f"candidate memory signal: {_fmt(memory_signal)}")
-    elif trace:
-        lbranch.add("no candidate fact detected this turn")
-    lbranch.add("persistence acceptance is owned by KnowledgeBuilder/SemanticMemory, not the CLI")
-
-    sebranch = tree.add("[bold]09[/bold] [bold white]SELF-EVALUATION[/bold white]  [bold yellow]NOT EXPOSED[/bold yellow]")
-    sebranch.add("No per-turn self-evaluation result is currently published into last_turn_trace.")
-
-    evbranch = tree.add("[bold]10[/bold] [bold white]EVOLUTION[/bold white]  [bold yellow]NOT EXPOSED[/bold yellow]")
-    evbranch.add("Evolution organ may be running, but this turn has no explicit evolution result in the trace.")
-
-    diag = tree.add("[bold]RUNTIME METRICS[/bold]")
-    diag.add(f"LLM inference: {llm_time:.3f}s")
-    diag.add(f"Total turn: {total_time:.3f}s")
-    diag.add(f"pipeline_success={trace.get('pipeline_success', False)}")
-    diag.add(f"trace timestamp={trace.get('timestamp', 'unknown')}")
-
-    typos = trace.get("typos_corrected", [])
-    if typos:
-        typo_str = ", ".join(f"{t.get('raw')}→{t.get('corrected')}" for t in typos[:12])
-        diag.add(f"typo normalization (retrieval only): {typo_str}")
-
-    console.print(
-        Panel(
-            tree,
-            border_style="dim",
-            title="[bold white]FULL ORGANISM COGNITIVE TRACE[/bold white]",
-            subtitle="[dim]No fabricated stage telemetry[/dim]",
-        )
-    )
+    """Legacy renderer retained for compatibility; query rendering is now owned by deep_inspector."""
+    return None
 
 
 def start_silent_heartbeat_sync(jarvis):
@@ -332,12 +189,7 @@ def start_silent_heartbeat_sync(jarvis):
 
 
 def _connect_llm_to_brain(brain):
-    """Connect the same bridge through the Brain's official setter.
-
-    This is important: assigning ``brain.llm`` directly can bypass
-    LLMOptionalBrain.set_llm_bridge(), which is responsible for registering
-    the shared bridge as the LLM perception provider too.
-    """
+    """Connect the same bridge through the Brain's official setter."""
     bridge = LlamaCppBridge(
         model_filename="qwen2.5-3b-instruct-q4_k_m.gguf",
         n_threads=4,
@@ -381,8 +233,9 @@ def execute_cognitive_query(jarvis, user_input: str, source: str = "cli") -> str
 
         total_duration = time.time() - start_total
         trace = getattr(brain, "last_turn_trace", None) if brain is not None else None
-        render_cognition_trace(brain, trace, source=source)
-        render_detailed_inspection(
+
+        # Exactly one query trace: the active Brain turn rendered by deep_inspector.
+        render_query_trace(
             brain,
             trace,
             source=source,
@@ -437,7 +290,6 @@ def start_web_server_thread(jarvis):
             app_module.set_shared_organism(jarvis)
         else:
             app_module.jarvis = jarvis
-
         if hasattr(app_module, "bind_query_executor"):
             app_module.bind_query_executor(process_query)
         if hasattr(app_module, "attach_console"):
@@ -448,12 +300,7 @@ def start_web_server_thread(jarvis):
             app_module.start_server_in_thread()
             console.print("[bold green]Web Engine Server Thread Successfully Started on :8000.[/bold green]")
     except Exception:
-        console.print(
-            Panel(
-                f"[bold red]Web Server Initialization Exception:[/bold red]\n{traceback.format_exc()}",
-                border_style="red",
-            )
-        )
+        console.print(Panel(f"[bold red]Web Server Initialization Exception:[/bold red]\n{traceback.format_exc()}", border_style="red"))
 
 
 def _http_ready(url, timeout=1.5):
@@ -465,18 +312,15 @@ def _http_ready(url, timeout=1.5):
 
 
 def start_frontend_server():
-    """Start NEW web_frontend with Vite on :5173, without touching :8000."""
     global _frontend_process
     frontend_dir = os.environ.get("JARVIS_FRONTEND_DIR", os.path.join(BASE_DIR, "web_frontend"))
     if not os.path.isdir(frontend_dir):
         console.print(f"[bold red]New frontend directory not found:[/bold red] {frontend_dir}")
         return None
-
     port = os.environ.get("JARVIS_FRONTEND_PORT", "5173")
     host = os.environ.get("JARVIS_FRONTEND_HOST", "127.0.0.1")
     node_bin = os.environ.get("JARVIS_VITE_BIN")
     command = [node_bin, "--host", host, "--port", port] if node_bin and os.path.isfile(node_bin) else ["npm", "run", "dev", "--", "--host", host, "--port", port]
-
     try:
         _frontend_process = subprocess.Popen(
             command,
@@ -491,7 +335,6 @@ def start_frontend_server():
         console.print("[dim]Set JARVIS_VITE_BIN to your Vite binary, or ensure npm is available.[/dim]")
         _frontend_process = None
         return None
-
     console.print(f"[cyan]New frontend starting on http://{host}:{port} ...[/cyan]")
     for _ in range(30):
         if _frontend_process.poll() is not None:
@@ -502,7 +345,6 @@ def start_frontend_server():
             console.print(f"[bold green]New frontend ONLINE: http://{host}:{port}[/bold green]")
             return _frontend_process
         time.sleep(0.25)
-
     console.print(f"[bold yellow]Vite process is running, but :{port} has not answered yet.[/bold yellow]")
     return _frontend_process
 
@@ -526,9 +368,7 @@ def stop_frontend_server():
 
 def patch_organ_instances(jarvis, reloaded_mod):
     patched_organs = []
-    classes_in_mod = {
-        name: obj for name, obj in reloaded_mod.__dict__.items() if isinstance(obj, type)
-    }
+    classes_in_mod = {name: obj for name, obj in reloaded_mod.__dict__.items() if isinstance(obj, type)}
     if not classes_in_mod or not hasattr(jarvis, "organs"):
         return patched_organs
     organs_dict = jarvis.organs if isinstance(jarvis.organs, dict) else {}
@@ -570,14 +410,12 @@ def start_live_module_watcher(jarvis):
                         if fp:
                             fingerprints[filepath] = fp
             return fingerprints
-
         try:
             last_state = scan_files()
             console.print(f"[bold green]Live File Watcher Active[/bold green] [dim](Tracking {len(last_state)} files in {BASE_DIR})[/dim]\n")
         except Exception as init_err:
             console.print(f"[bold red]Watcher Init Failed:[/bold red] {init_err}")
             return
-
         while True:
             try:
                 time.sleep(1.0)
@@ -594,18 +432,11 @@ def start_live_module_watcher(jarvis):
                     timestamp_str = time.strftime("%H:%M:%S")
                     for filepath in new_files:
                         rel_path = os.path.relpath(filepath, BASE_DIR)
-                        console.print(Panel(
-                            f"[bold cyan]NEW FILE CREATED[/bold cyan]\n\nFile: [white]{rel_path}[/white]\nDetected: [dim]{timestamp_str}[/dim]",
-                            title="WORKSPACE FILE ADDED",
-                            border_style="cyan",
-                        ))
+                        console.print(Panel(f"[bold cyan]NEW FILE CREATED[/bold cyan]\n\nFile: [white]{rel_path}[/white]\nDetected: [dim]{timestamp_str}[/dim]", title="WORKSPACE FILE ADDED", border_style="cyan"))
                     for filepath in changed_files:
                         rel_path = os.path.relpath(filepath, BASE_DIR)
                         if rel_path == "cli.py":
-                            console.print(Panel(
-                                f"[bold yellow]cli.py edit detected at {timestamp_str}.[/bold yellow]\nRestart the runner to apply cli.py changes.",
-                                border_style="yellow",
-                            ))
+                            console.print(Panel(f"[bold yellow]cli.py edit detected at {timestamp_str}.[/bold yellow]\nRestart the runner to apply cli.py changes.", border_style="yellow"))
                             continue
                         mod_name = rel_path.replace(os.sep, ".").rstrip(".py")
                         if mod_name.endswith(".__init__"):
@@ -618,31 +449,19 @@ def start_live_module_watcher(jarvis):
                                     reloaded_mod = importlib.import_module(mod_name)
                                 patched_list = patch_organ_instances(jarvis, reloaded_mod)
                                 patch_info = f"\nPatched Organs: [green]{', '.join(patched_list)}[/green]" if patched_list else ""
-                                console.print(Panel(
-                                    f"[bold yellow]FILE CHANGE DETECTED[/bold yellow]\n\nFile: [white]{rel_path}[/white]\nModule: [cyan]{mod_name}[/cyan]\nApplied: [dim]{timestamp_str}[/dim]{patch_info}\n[bold green]Status: Live-Patched into RAM[/bold green]",
-                                    title="HOT-RELOAD SUCCESSFUL",
-                                    border_style="green",
-                                ))
+                                console.print(Panel(f"[bold yellow]FILE CHANGE DETECTED[/bold yellow]\n\nFile: [white]{rel_path}[/white]\nModule: [cyan]{mod_name}[/cyan]\nApplied: [dim]{timestamp_str}[/dim]{patch_info}\n[bold green]Status: Live-Patched into RAM[/bold green]", title="HOT-RELOAD SUCCESSFUL", border_style="green"))
                                 if web_event_broadcaster and callable(web_event_broadcaster):
-                                    web_event_broadcaster({
-                                        "type": "system_toast",
-                                        "level": "success",
-                                        "title": "Module Live Patched",
-                                        "message": f"Updated {mod_name} instantly!",
-                                        "timestamp": timestamp_str,
-                                    })
+                                    web_event_broadcaster({"type": "system_toast", "level": "success", "title": "Module Live Patched", "message": f"Updated {mod_name} instantly!", "timestamp": timestamp_str})
                             except Exception:
                                 console.print(f"[dim red]Hot-reload failed for {rel_path}: {traceback.format_exc()}[/dim red]")
             except Exception:
                 time.sleep(1.0)
-
     threading.Thread(target=_watch_loop, daemon=True).start()
 
 
 def main():
-    global _global_jarvis_instance
+    global _global_jarvis_instance, _cli_monitor
     print_banner()
-
     console.print(Panel.fit(
         "[bold yellow]Select Runtime Execution Target:[/bold yellow]\n\n"
         "  [bold cyan][1][/bold cyan] [bold white]CLI Diagnostic Mode[/bold white] (Pure Local Terminal, No Server)\n"
@@ -674,6 +493,10 @@ def main():
             console.print(f"[bold red]Neural Bridge Connection Failure: {exc}[/bold red]\n")
 
     start_silent_heartbeat_sync(jarvis)
+
+    # Idle mode is always a live organism monitor, independent of web/dev mode.
+    _cli_monitor = OrganismCLIMonitor(jarvis, console, interval=0.75)
+    _cli_monitor.start()
 
     if choice == "3":
         console.print("[bold yellow]Development Mode Active: Hot-Reload Watcher Enabled.[/bold yellow]")
@@ -716,6 +539,9 @@ def main():
     except KeyboardInterrupt:
         console.print("\n[bold red]Execution interrupted by user.[/bold red]")
     finally:
+        if _cli_monitor is not None:
+            _cli_monitor.stop()
+            _cli_monitor = None
         stop_frontend_server()
         stop_jarvis(jarvis)
         console.print("[dim text-gray]SYSTEM STATE: OFFLINE[/dim text-gray]")
