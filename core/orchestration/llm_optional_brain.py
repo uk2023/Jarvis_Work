@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""LLM-optional Brain adapter: perception -> routing -> action/LLM."""
+"""LLM-optional Brain adapter: perception -> cognition -> action/LLM."""
 from time import time
 from typing import Any, Dict, Optional
 
@@ -27,7 +27,6 @@ class LLMOptionalBrain(BaseBrain):
         self.last_action_response: Optional[Dict[str, Any]] = None
 
     def _emit(self, name: str, payload: Optional[Dict[str, Any]] = None) -> None:
-        """Publish lifecycle telemetry without coupling Brain to consumers."""
         if self.events is None:
             return
         try:
@@ -46,129 +45,43 @@ class LLMOptionalBrain(BaseBrain):
         self.skill_executor = SkillExecutor(skill_registry) if skill_registry is not None else None
 
     def attach_skill_executor(self, skill_executor: Any) -> None:
-        """Attach the organism-owned executor without creating a duplicate."""
         self.skill_executor = skill_executor
 
     def execute_autonomous_step(self, step: Dict[str, Any], goal: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Execute one planner-approved autonomous step through Brain.
-
-        Idle/autonomous execution must not bypass Brain and write its own
-        episode. Brain owns the action/response decision and hands the
-        completed outcome into the normal Experience -> Learning path.
-        """
+        """Execute one planner-approved step through the Brain boundary."""
         started = time()
         step_data = dict(step or {})
         action_name = step_data.get("action")
         skill_name = step_data.get("capability") or step_data.get("skill") or action_name
-
-        self._emit("BRAIN_CYCLE_STARTED", {
-            "source": "idle",
-            "goal": goal or {},
-            "step": step_data,
-        })
-
+        self._emit("BRAIN_CYCLE_STARTED", {"source": "idle", "goal": goal or {}, "step": step_data})
         if step_data.get("requires_confirmation") is True:
-            result = {
-                "success": False,
-                "status": "blocked_pending_confirmation",
-                "action": action_name,
-                "result": "confirmation_required",
-            }
-            self.last_brain_decision = {
-                "mode": "native",
-                "source": "idle",
-                "status": "blocked_pending_confirmation",
-                "action": action_name,
-            }
+            result = {"success": False, "status": "blocked_pending_confirmation", "action": action_name, "result": "confirmation_required"}
+            self.last_brain_decision = {"mode": "native", "source": "idle", "status": result["status"], "action": action_name}
             self.last_action_response = result
             self._emit("ACTION_RESPONSE_COMPLETED", result)
             return result
-
         if self.skill_executor is None or not skill_name:
-            result = {
-                "success": False,
-                "status": "no_capability",
-                "action": action_name,
-                "result": f"capability_not_available: {skill_name}",
-            }
-            self.last_brain_decision = {
-                "mode": "native",
-                "source": "idle",
-                "status": "no_capability",
-                "action": action_name,
-            }
+            result = {"success": False, "status": "no_capability", "action": action_name, "result": f"capability_not_available: {skill_name}"}
+            self.last_brain_decision = {"mode": "native", "source": "idle", "status": result["status"], "action": action_name}
             self.last_action_response = result
             self._emit("ACTION_RESPONSE_FAILED", result)
-            self._enqueue_learning(
-                event_type="AUTONOMOUS_STEP",
-                context={"goal": goal or {}, "step": step_data},
-                action={"skill": skill_name, "action": action_name},
-                outcome=result,
-                source="idle",
-                importance=0.3,
-            )
+            self._enqueue_learning(event_type="AUTONOMOUS_STEP", context={"goal": goal or {}, "step": step_data}, action={"skill": skill_name, "action": action_name}, outcome=result, source="idle", importance=0.3)
             return result
-
         try:
             native_result = self.skill_executor.execute(skill_name, user_input=step_data.get("input", action_name))
-            result = {
-                "success": True,
-                "status": "completed",
-                "action": action_name,
-                "skill": skill_name,
-                "result": str(native_result),
-                "duration": time() - started,
-            }
-            self.last_brain_decision = {
-                "mode": "native",
-                "source": "idle",
-                "status": "completed",
-                "skill": skill_name,
-                "action_result": str(native_result),
-            }
+            result = {"success": True, "status": "completed", "action": action_name, "skill": skill_name, "result": str(native_result), "duration": time() - started}
+            self.last_brain_decision = {"mode": "native", "source": "idle", "status": "completed", "skill": skill_name, "action_result": str(native_result)}
             self.last_action_response = result
             self._emit("ACTION_RESPONSE_COMPLETED", result)
-            self._enqueue_learning(
-                event_type="AUTONOMOUS_STEP",
-                context={"goal": goal or {}, "step": step_data},
-                action={"skill": skill_name, "action": action_name, "result": str(native_result)},
-                outcome=result,
-                source="idle",
-                importance=0.5,
-            )
-            self._emit("BRAIN_CYCLE_COMPLETED", {
-                "source": "idle",
-                "brain_decision": self.last_brain_decision,
-                "action_response": result,
-                "duration": time() - started,
-            })
+            self._enqueue_learning(event_type="AUTONOMOUS_STEP", context={"goal": goal or {}, "step": step_data}, action={"skill": skill_name, "action": action_name, "result": str(native_result)}, outcome=result, source="idle", importance=0.5)
+            self._emit("BRAIN_CYCLE_COMPLETED", {"source": "idle", "brain_decision": self.last_brain_decision, "action_response": result, "duration": time() - started})
             return result
         except Exception as exc:
-            result = {
-                "success": False,
-                "status": "failed",
-                "action": action_name,
-                "skill": skill_name,
-                "result": str(exc),
-                "duration": time() - started,
-            }
-            self.last_brain_decision = {
-                "mode": "native",
-                "source": "idle",
-                "status": "failed",
-                "skill": skill_name,
-                "error": str(exc),
-            }
+            result = {"success": False, "status": "failed", "action": action_name, "skill": skill_name, "result": str(exc), "duration": time() - started}
+            self.last_brain_decision = {"mode": "native", "source": "idle", "status": "failed", "skill": skill_name, "error": str(exc)}
             self.last_action_response = result
             self._emit("ACTION_RESPONSE_FAILED", result)
-            self._enqueue_learning(
-                event_type="AUTONOMOUS_STEP",
-                context={"goal": goal or {}, "step": step_data},
-                action={"skill": skill_name, "action": action_name},
-                outcome=result,
-                source="idle",
-                importance=0.5,
-            )
+            self._enqueue_learning(event_type="AUTONOMOUS_STEP", context={"goal": goal or {}, "step": step_data}, action={"skill": skill_name, "action": action_name}, outcome=result, source="idle", importance=0.5)
             return result
 
     def _perceive(self, user_input: str) -> Dict[str, Any]:
@@ -186,14 +99,7 @@ class LLMOptionalBrain(BaseBrain):
             current_goal = getattr(self.goal_manager, "current_goal", None)
             if current_goal is not None:
                 goals = [current_goal]
-        decision = self.cognitive_router.decide(
-            user_input=user_input,
-            context=context,
-            skills=getattr(self.skill_registry, "skills", None),
-            identity=None,
-            goals=goals,
-            perception=perception,
-        )
+        decision = self.cognitive_router.decide(user_input=user_input, context=context, skills=getattr(self.skill_registry, "skills", None), identity=None, goals=goals, perception=perception)
         payload = decision.as_dict()
         self.last_cognitive_decision = payload
         if self.state is not None:
@@ -204,8 +110,30 @@ class LLMOptionalBrain(BaseBrain):
         self._emit("COGNITION_ROUTED", {"user_input": user_input, "decision": payload})
         return payload
 
+    def _register_and_plan_goal(self, perceived_goal: Any) -> Dict[str, Any]:
+        """Persist a user goal and plan it; execution remains Brain/idle-owned."""
+        if self.goal_manager is None:
+            return {"status": "goal_manager_unavailable", "goal": perceived_goal}
+        if isinstance(perceived_goal, dict):
+            text = str(perceived_goal.get("text") or perceived_goal.get("description") or "").strip()
+            priority = float(perceived_goal.get("priority", 0.7) or 0.7)
+        else:
+            text = str(perceived_goal or "").strip()
+            priority = 0.7
+        if not text:
+            return {"status": "invalid_goal", "goal": perceived_goal}
+        existing = next((g for g in self.goal_manager.pending() if str(g.get("text", "")).strip().lower() == text.lower()), None)
+        goal = existing or self.goal_manager.add(text=text, priority=priority, origin="user")
+        self.goal_manager.update_status(goal["id"], "active")
+        planner = getattr(self, "planner", None)
+        plan = goal.get("plan") or []
+        if not plan and planner is not None:
+            plan = planner.plan(goal)
+            self.goal_manager.set_plan(goal["id"], plan)
+            goal = self.goal_manager._find(goal["id"]) or goal
+        return {"status": "planned", "goal": goal, "plan": plan}
+
     def _record_action_response(self, *, mode: str, status: str, response: Any, action: Optional[Dict[str, Any]] = None, error: Optional[str] = None) -> str:
-        """Commit the Brain decision into one explicit action/response contract."""
         response_text = str(response)
         record: Dict[str, Any] = {"mode": mode, "status": status, "response": response_text}
         if action is not None:
@@ -217,18 +145,7 @@ class LLMOptionalBrain(BaseBrain):
         return response_text
 
     def _trace(self, user_input: str, response: str, route: Dict[str, Any], perception: Dict[str, Any], started: float, llm: bool) -> None:
-        self.last_turn_trace = {
-            "source": "brain",
-            "query": user_input,
-            "response_preview": response[:200],
-            "perception": perception,
-            "cognitive_route": route,
-            "brain_decision": self.last_brain_decision,
-            "action_response": self.last_action_response,
-            "llm_available": llm,
-            "pipeline_success": True,
-            "timings": {"total": time() - started, "memory": 0.0, "llm": 0.0},
-        }
+        self.last_turn_trace = {"source": "brain", "query": user_input, "response_preview": response[:200], "perception": perception, "cognitive_route": route, "brain_decision": self.last_brain_decision, "action_response": self.last_action_response, "llm_available": llm, "pipeline_success": True, "timings": {"total": time() - started, "memory": 0.0, "llm": 0.0}}
         self._emit("BRAIN_CYCLE_COMPLETED", {"trace": self.last_turn_trace})
 
     def _fallback(self, user_input: str) -> str:
@@ -238,14 +155,9 @@ class LLMOptionalBrain(BaseBrain):
         return "JARVIS received the input, but no language cognition provider is currently available. Core organism remains active."
 
     def _hybrid_synthesize(self, user_input: str, skill_name: str, native_result: Any, source: str) -> str:
-        """Native capability executes first; LLM only interprets the result."""
         if self.llm is None:
             return str(native_result)
-        system_prompt = (
-            "You are JARVIS's response synthesizer. A native organism skill has already "
-            "executed successfully. Do not invent actions or claim to execute anything. "
-            "Return a concise user-facing response based only on the native result."
-        )
+        system_prompt = "You are JARVIS's response synthesizer. A native organism skill has already executed successfully. Do not invent actions or claim to execute anything. Return a concise user-facing response based only on the native result."
         synthesis_input = f"User request: {user_input}\nNative skill: {skill_name}\nNative result: {native_result}"
         try:
             generate_combined = getattr(self.llm, "generate_combined", None)
@@ -267,6 +179,14 @@ class LLMOptionalBrain(BaseBrain):
         route = self._route_cognition(user_input, perception)
         mode = route.get("mode")
         intent = perception.get("intent") or {}
+
+        if mode == "goal":
+            planned = self._register_and_plan_goal(perception.get("goal"))
+            self.last_brain_decision = {"mode": "goal", "status": planned.get("status"), "goal": planned.get("goal"), "plan": planned.get("plan", [])}
+            response = "Goal accepted and planned. It is now under Brain-controlled execution/idle progression."
+            response = self._record_action_response(mode="goal", status=planned.get("status", "planned"), response=response, action={"goal_id": (planned.get("goal") or {}).get("id"), "plan": planned.get("plan", [])})
+            self._trace(user_input, response, route, perception, started, self.llm is not None)
+            return response
 
         if mode == "tool" and self.skill_executor is not None:
             skill_name = intent.get("skill") or intent.get("name")
@@ -302,8 +222,8 @@ class LLMOptionalBrain(BaseBrain):
                     self._emit("ACTION_RESPONSE_FAILED", {"mode": "hybrid", "error": str(exc), "user_input": user_input})
 
         if mode == "clarify":
-            response = self._record_action_response(mode="clarify", status="blocked_pending_confirmation", response="I need clarification before I can safely continue.")
             self.last_brain_decision = {"mode": "clarify", "status": "blocked_pending_confirmation"}
+            response = self._record_action_response(mode="clarify", status="blocked_pending_confirmation", response="I need clarification before I can safely continue.")
             self._trace(user_input, response, route, perception, started, self.llm is not None)
             return response
 
@@ -315,8 +235,8 @@ class LLMOptionalBrain(BaseBrain):
             return response
 
         if mode == "known" and self.llm is None:
-            response = self._record_action_response(mode="known", status="knowledge_only", response="JARVIS has supporting knowledge, but no native language renderer is available yet.")
             self.last_brain_decision = {"mode": "known", "status": "knowledge_only"}
+            response = self._record_action_response(mode="known", status="knowledge_only", response="JARVIS has supporting knowledge, but no native language renderer is available yet.")
             self._trace(user_input, response, route, perception, started, False)
             return response
 
