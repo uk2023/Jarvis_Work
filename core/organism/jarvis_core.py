@@ -1,59 +1,34 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict, Optional
 import time
 
 from core.identity import Identity, Values, Personality
 
 
 class JarvisCore:
-    """
-    Central organism coordinator.
-
-    IMPORTANT:
-    - This is NOT the LLM.
-    - This is NOT the Gatekeeper.
-    - This is the persistent coordination layer of JARVIS.
-    - Cognitive organs are attached to this core rather than being embedded
-      directly into it.
-
-    Current responsibility:
-        receive event
-        -> maintain organism state
-        -> notify organs
-        -> expose a stable interface for future evolution
-
-    Later:
-        Gatekeeper, Chat, Reasoning, Code, OCR, Memory, Learning,
-        Autonomy and Skills will attach to this core.
-    """
+    """Central organism coordinator."""
 
     VERSION = "0.1.0"
 
-    def __init__(
-        self,
-        identity=None,
-        personality=None,
-        values=None,
-        state=None,
-        event_bus=None,
-        lifecycle=None,
-        heartbeat=None,
-        organs=None,
-    ):
+    def __init__(self, identity=None, personality=None, values=None,
+                 state=None, event_bus=None, lifecycle=None, heartbeat=None,
+                 organs=None):
         self.identity = identity if identity is not None else Identity()
         self.personality = personality if personality is not None else Personality()
         self.values = values if values is not None else Values()
         self.state = state
 
-        # Canonical runtime name is event_bus. Keep `events` as a compatibility
-        # alias for existing organism code that still uses the older name.
+        # `event_bus` is the canonical runtime name. `events` remains a
+        # compatibility alias for existing organism code.
         self.event_bus = event_bus
         self.events = event_bus
         self.lifecycle = lifecycle
         self.heartbeat = heartbeat
 
+        # Bootstrap may provide the initial organ map.
         self.organs: Dict[str, Any] = dict(organs or {})
+
         self.started_at = time.time()
         self.last_event = None
         self.running = False
@@ -87,10 +62,12 @@ class JarvisCore:
         self._set_state(mode="STOPPED")
         self._publish("JARVIS_STOPPED", {"timestamp": time.time()})
 
-    def receive_event(self, event_name: str, payload: Any = None, source: Optional[str] = None) -> Dict[str, Any]:
+    def receive_event(self, event_name: str, payload: Any = None,
+                      source: Optional[str] = None) -> Dict[str, Any]:
         if not event_name:
             raise ValueError("event_name cannot be empty.")
-        event = {"name": event_name, "payload": payload, "source": source, "timestamp": time.time()}
+        event = {"name": event_name, "payload": payload, "source": source,
+                 "timestamp": time.time()}
         self.last_event = event
         self._set_state(last_event=event)
         self._publish(event_name, event)
@@ -110,9 +87,10 @@ class JarvisCore:
                 pass
 
     def _publish(self, event_name: str, payload: Any = None) -> None:
-        if self.event_bus is None:
+        bus = self.event_bus
+        if bus is None:
             return
-        publish_method = getattr(self.event_bus, "emit", None)
+        publish_method = getattr(bus, "emit", None)
         if callable(publish_method):
             try:
                 publish_method(event_name, payload)
@@ -120,10 +98,8 @@ class JarvisCore:
                 print(f"[JarvisCore EventBus Error] {event_name}: {exc}")
 
     def get_organ_status(self) -> Dict[str, Dict[str, Any]]:
-        return {
-            name: {"type": type(organ).__name__, "attached": True}
-            for name, organ in self.organs.items()
-        }
+        return {name: {"type": type(organ).__name__, "attached": True}
+                for name, organ in self.organs.items()}
 
     def snapshot(self) -> Dict[str, Any]:
         state_snapshot = {}
@@ -160,9 +136,7 @@ class JarvisCore:
             "version": self.VERSION,
             "running": self.running,
             "organs": list(self.organs.keys()),
-            "state": (
-                self.state.snapshot()
-                if self.state and callable(getattr(self.state, "snapshot", None))
-                else {}
-            ),
+            "state": (self.state.snapshot()
+                      if self.state and callable(getattr(self.state, "snapshot", None))
+                      else {}),
         }
