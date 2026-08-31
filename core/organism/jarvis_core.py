@@ -39,6 +39,7 @@ class JarvisCore:
         event_bus=None,
         lifecycle=None,
         heartbeat=None,
+        organs=None,
     ):
         # ---------------------------------------------------------
         # Identity layer
@@ -62,10 +63,10 @@ class JarvisCore:
         # ---------------------------------------------------------
         # Cognitive organs
         #
-        # These remain empty initially.
-        # Gatekeeper will be attached later.
+        # Bootstrap may provide the initial organ map. Copy it so the
+        # caller cannot mutate JarvisCore's registry behind its back.
         # ---------------------------------------------------------
-        self.organs: Dict[str, Any] = {}
+        self.organs: Dict[str, Any] = dict(organs or {})
 
         # ---------------------------------------------------------
         # Runtime metadata
