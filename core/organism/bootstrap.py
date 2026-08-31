@@ -76,7 +76,7 @@ def create_jarvis(identity=None, personality=None, values=None,
         "cognitive_router": cognitive_router, "brain": brain,
     }
     jarvis = JarvisCore(identity=identity, personality=personality, values=values,
-                        state=state, events=events, heartbeat=heartbeat, organs=organs)
+                        state=state, event_bus=events, heartbeat=heartbeat, organs=organs)
     jarvis.idle_loop = idle_loop
     return jarvis
 
