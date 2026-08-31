@@ -81,11 +81,10 @@ def create_jarvis(identity=None, personality=None, values=None,
         "cognitive_router": cognitive_router, "brain": brain,
     }
 
-    # JarvisCore owns the stable organ attachment contract. Do not pass an
-    # undocumented `organs=` constructor argument; attach each organ through
-    # the public API so bootstrap remains compatible with JarvisCore.
+    # JarvisCore's constructor calls the EventBus parameter `event_bus`.
+    # Keep bootstrap on that public contract; do not use the old `events` name.
     jarvis = JarvisCore(identity=identity, personality=personality, values=values,
-                        state=state, events=events, heartbeat=heartbeat)
+                        state=state, event_bus=events, heartbeat=heartbeat)
     for name, organ in organs.items():
         jarvis.attach_organ(name, organ)
 
