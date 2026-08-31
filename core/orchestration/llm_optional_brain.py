@@ -26,6 +26,15 @@ class LLMOptionalBrain(BaseBrain):
         self.last_brain_decision: Optional[Dict[str, Any]] = None
         self.last_action_response: Optional[Dict[str, Any]] = None
 
+    def _emit(self, name: str, payload: Optional[Dict[str, Any]] = None) -> None:
+        """Publish lifecycle telemetry without coupling Brain to consumers."""
+        if self.events is None:
+            return
+        try:
+            self.events.safe_emit(name, payload or {}, source="brain")
+        except Exception:
+            pass
+
     def set_llm_bridge(self, llm_bridge: Any) -> None:
         self.llm = llm_bridge
         self.perception.providers = [p for p in self.perception.providers if getattr(p, "name", None) != "llm"]
@@ -41,6 +50,7 @@ class LLMOptionalBrain(BaseBrain):
         result = self.perception.perceive(user_input, context=context)
         payload = result.as_dict()
         self.last_perception = payload
+        self._emit("PERCEPTION_COMPLETED", {"user_input": user_input, "perception": payload})
         return payload
 
     def _route_cognition(self, user_input: str, perception: Dict[str, Any]) -> Dict[str, Any]:
@@ -62,36 +72,22 @@ class LLMOptionalBrain(BaseBrain):
         self.last_cognitive_decision = payload
         if self.state is not None:
             try:
-                self.state.update(
-                    last_route=decision.mode,
-                    confidence=decision.confidence,
-                    uncertainty=1.0 - decision.confidence,
-                )
+                self.state.update(last_route=decision.mode, confidence=decision.confidence, uncertainty=1.0 - decision.confidence)
             except Exception:
                 pass
+        self._emit("COGNITION_ROUTED", {"user_input": user_input, "decision": payload})
         return payload
 
-    def _record_action_response(
-        self,
-        *,
-        mode: str,
-        status: str,
-        response: Any,
-        action: Optional[Dict[str, Any]] = None,
-        error: Optional[str] = None,
-    ) -> str:
+    def _record_action_response(self, *, mode: str, status: str, response: Any, action: Optional[Dict[str, Any]] = None, error: Optional[str] = None) -> str:
         """Commit the Brain decision into one explicit action/response contract."""
         response_text = str(response)
-        record: Dict[str, Any] = {
-            "mode": mode,
-            "status": status,
-            "response": response_text,
-        }
+        record: Dict[str, Any] = {"mode": mode, "status": status, "response": response_text}
         if action is not None:
             record["action"] = action
         if error is not None:
             record["error"] = error
         self.last_action_response = record
+        self._emit("ACTION_RESPONSE_COMPLETED", record)
         return response_text
 
     def _trace(self, user_input: str, response: str, route: Dict[str, Any], perception: Dict[str, Any], started: float, llm: bool) -> None:
@@ -107,6 +103,7 @@ class LLMOptionalBrain(BaseBrain):
             "pipeline_success": True,
             "timings": {"total": time() - started, "memory": 0.0, "llm": 0.0},
         }
+        self._emit("BRAIN_CYCLE_COMPLETED", {"trace": self.last_turn_trace})
 
     def _fallback(self, user_input: str) -> str:
         lower = (user_input or "").strip().lower()
@@ -134,15 +131,12 @@ class LLMOptionalBrain(BaseBrain):
             if callable(generate):
                 return str(generate(system_prompt, synthesis_input)).strip()
         except Exception as exc:
-            self.last_brain_decision = {
-                "mode": "hybrid",
-                "status": "native_success_llm_synthesis_failed",
-                "error": str(exc),
-            }
+            self.last_brain_decision = {"mode": "hybrid", "status": "native_success_llm_synthesis_failed", "error": str(exc)}
         return str(native_result)
 
     def think_and_respond(self, user_input: str, identity_profile: Optional[Dict[str, Any]] = None, source: str = "cli") -> str:
         started = time()
+        self._emit("BRAIN_CYCLE_STARTED", {"user_input": user_input, "source": source})
         perception = self._perceive(user_input)
         route = self._route_cognition(user_input, perception)
         mode = route.get("mode")
@@ -153,32 +147,16 @@ class LLMOptionalBrain(BaseBrain):
             if skill_name:
                 try:
                     response = self.skill_executor.execute(skill_name, user_input=user_input)
-                    self.last_brain_decision = {
-                        "mode": "native",
-                        "status": "executed",
-                        "skill": skill_name,
-                        "action_result": str(response),
-                    }
-                    response = self._record_action_response(
-                        mode="native",
-                        status="completed",
-                        response=response,
-                        action={"skill": skill_name, "result": str(response)},
-                    )
-                    self._enqueue_learning(
-                        event_type="USER_CHAT_TOOL",
-                        context={"user_input": user_input, "perception": perception, "cognitive_route": route},
-                        action={"skill": skill_name, "result": response},
-                        outcome={"status": "completed"},
-                        source=source,
-                        importance=0.7,
-                    )
+                    self.last_brain_decision = {"mode": "native", "status": "executed", "skill": skill_name, "action_result": str(response)}
+                    response = self._record_action_response(mode="native", status="completed", response=response, action={"skill": skill_name, "result": str(response)})
+                    self._enqueue_learning(event_type="USER_CHAT_TOOL", context={"user_input": user_input, "perception": perception, "cognitive_route": route}, action={"skill": skill_name, "result": response}, outcome={"status": "completed"}, source=source, importance=0.7)
                     self._trace(user_input, response, route, perception, started, self.llm is not None)
                     return response
                 except Exception as exc:
                     route = dict(route)
                     route["native_execution_error"] = str(exc)
                     self.last_cognitive_decision = route
+                    self._emit("ACTION_RESPONSE_FAILED", {"mode": "native", "error": str(exc), "user_input": user_input})
 
         if mode == "hybrid" and self.skill_executor is not None:
             skill_name = intent.get("skill") or intent.get("name")
@@ -186,44 +164,19 @@ class LLMOptionalBrain(BaseBrain):
                 try:
                     native_result = self.skill_executor.execute(skill_name, user_input=user_input)
                     response = self._hybrid_synthesize(user_input, skill_name, native_result, source)
-                    self.last_brain_decision = {
-                        "mode": "hybrid",
-                        "status": "completed",
-                        "native_skill": skill_name,
-                        "native_result": str(native_result),
-                        "response": response,
-                    }
-                    response = self._record_action_response(
-                        mode="hybrid",
-                        status="completed",
-                        response=response,
-                        action={"skill": skill_name, "result": str(native_result), "mode": "hybrid"},
-                    )
-                    self._enqueue_learning(
-                        event_type="USER_CHAT_HYBRID",
-                        context={"user_input": user_input, "perception": perception, "cognitive_route": route},
-                        action={"skill": skill_name, "result": str(native_result), "mode": "hybrid"},
-                        outcome={"status": "completed", "response": response},
-                        source=source,
-                        importance=0.8,
-                    )
+                    self.last_brain_decision = {"mode": "hybrid", "status": "completed", "native_skill": skill_name, "native_result": str(native_result), "response": response}
+                    response = self._record_action_response(mode="hybrid", status="completed", response=response, action={"skill": skill_name, "result": str(native_result), "mode": "hybrid"})
+                    self._enqueue_learning(event_type="USER_CHAT_HYBRID", context={"user_input": user_input, "perception": perception, "cognitive_route": route}, action={"skill": skill_name, "result": str(native_result), "mode": "hybrid"}, outcome={"status": "completed", "response": response}, source=source, importance=0.8)
                     self._trace(user_input, response, route, perception, started, self.llm is not None)
                     return response
                 except Exception as exc:
-                    self.last_brain_decision = {
-                        "mode": "hybrid",
-                        "status": "native_execution_failed",
-                        "error": str(exc),
-                    }
+                    self.last_brain_decision = {"mode": "hybrid", "status": "native_execution_failed", "error": str(exc)}
                     route = dict(route)
                     route["native_execution_error"] = str(exc)
+                    self._emit("ACTION_RESPONSE_FAILED", {"mode": "hybrid", "error": str(exc), "user_input": user_input})
 
         if mode == "clarify":
-            response = self._record_action_response(
-                mode="clarify",
-                status="blocked_pending_confirmation",
-                response="I need clarification before I can safely continue.",
-            )
+            response = self._record_action_response(mode="clarify", status="blocked_pending_confirmation", response="I need clarification before I can safely continue.")
             self.last_brain_decision = {"mode": "clarify", "status": "blocked_pending_confirmation"}
             self._trace(user_input, response, route, perception, started, self.llm is not None)
             return response
@@ -236,25 +189,14 @@ class LLMOptionalBrain(BaseBrain):
             return response
 
         if mode == "known" and self.llm is None:
-            response = self._record_action_response(
-                mode="known",
-                status="knowledge_only",
-                response="JARVIS has supporting knowledge, but no native language renderer is available yet.",
-            )
+            response = self._record_action_response(mode="known", status="knowledge_only", response="JARVIS has supporting knowledge, but no native language renderer is available yet.")
             self.last_brain_decision = {"mode": "known", "status": "knowledge_only"}
             self._trace(user_input, response, route, perception, started, False)
             return response
 
         response = self._fallback(user_input)
         try:
-            self._enqueue_learning(
-                event_type="USER_INPUT_DEGRADED",
-                context={"user_input": user_input, "perception": perception, "cognitive_route": route},
-                action={"mode": "llm_unavailable"},
-                outcome={"status": "received_without_llm"},
-                source=source,
-                importance=0.2,
-            )
+            self._enqueue_learning(event_type="USER_INPUT_DEGRADED", context={"user_input": user_input, "perception": perception, "cognitive_route": route}, action={"mode": "llm_unavailable"}, outcome={"status": "received_without_llm"}, source=source, importance=0.2)
         except Exception:
             pass
         self.last_brain_decision = {"mode": "fallback", "status": "degraded"}
