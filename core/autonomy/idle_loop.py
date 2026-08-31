@@ -66,33 +66,57 @@ class IdleLoop:
             return self._noop("no pending goals")
 
         self.goal_manager.update_status(target["id"], "active")
-        steps = self.planner.plan(target)
+
+        # A goal owns its plan and cursor so repeated idle cycles continue
+        # from the next step instead of executing step 1 forever.
+        plan = target.get("plan") or []
+        step_index = int(target.get("step_index", 0))
+        if not plan or step_index >= len(plan):
+            plan = self.planner.plan(target)
+            self.goal_manager.set_plan(target["id"], plan)
+            target = self.goal_manager._find(target["id"]) or target
+            step_index = int(target.get("step_index", 0))
 
         executed = []
         confirmations_needed = []
 
-        for step in steps[: self.max_actions_per_step]:
-            if step.get("requires_confirmation"):
-                confirmations_needed.append(step)
+        for planned_step in plan[step_index : step_index + self.max_actions_per_step]:
+            if planned_step.get("requires_confirmation"):
+                confirmations_needed.append(planned_step)
                 self.pending_confirmations.append(
-                    {**step, "goal_id": target["id"], "queued_at": time.time()}
+                    {**planned_step, "goal_id": target["id"], "queued_at": time.time()}
                 )
                 continue
 
-            outcome = self._run_step(target, step)
+            outcome = self._run_step(target, planned_step)
             executed.append(outcome)
 
-        if executed and not confirmations_needed:
-            self.goal_manager.add_progress(
-                target["id"], f"Executed: {[s.get('action') for s in executed]}"
-            )
+            if outcome.get("success") is True:
+                self.goal_manager.advance_step(target["id"])
+                self.goal_manager.add_progress(
+                    target["id"], f"Executed: {planned_step.get('action')}"
+                )
+            else:
+                # Failed work remains at the current cursor so a later cycle
+                # can retry/recover instead of falsely completing the goal.
+                self.goal_manager.add_progress(
+                    target["id"], f"Failed: {planned_step.get('action')}"
+                )
 
-        if not steps:
+        refreshed = self.goal_manager._find(target["id"]) or target
+        refreshed_index = int(refreshed.get("step_index", 0))
+        if plan and refreshed_index >= len(plan):
             self.goal_manager.update_status(target["id"], "completed")
+        elif confirmations_needed:
+            self.goal_manager.add_progress(
+                target["id"], "Awaiting explicit confirmation before continuing."
+            )
 
         result = {
             "action": "IDLE_CYCLE",
             "goal": target["text"],
+            "goal_id": target["id"],
+            "step_index": refreshed_index,
             "executed": executed,
             "awaiting_confirmation": confirmations_needed,
         }
