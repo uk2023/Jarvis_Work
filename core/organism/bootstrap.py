@@ -44,24 +44,20 @@ def create_jarvis(identity=None, personality=None, values=None,
                                    consolidator=consolidator, memory_manager=memory,
                                    event_bus=events, internal_state=state)
     evolution = EvolutionEngine(event_bus=events, internal_state=state, memory_manager=memory)
-
     goal_manager = GoalManager(store=memory.store)
     curiosity = Curiosity()
     scheduler = Scheduler()
     planner = Planner(llm_bridge=None)
-
     skill_registry = SkillRegistry()
     skill_executor = SkillExecutor(skill_registry)
     skill_learner = SkillLearner()
     idle_executor = IdleExecutor(capabilities=skill_registry.skills, event_bus=events)
     cognitive_router = CognitiveRouter()
     perception = PerceptionEngine(state=state)
-
     idle_loop = IdleLoop(goal_manager=goal_manager, curiosity=curiosity,
                          planner=planner, scheduler=scheduler, state=state,
                          event_bus=events, store=memory.store,
                          executor=idle_executor)
-
     brain = Brain(memory_manager=memory, experience_engine=experience_engine,
                   learning_coordinator=learning, self_evaluator=evaluator,
                   knowledge_builder=knowledge_builder, memory_consolidator=consolidator,
@@ -69,7 +65,6 @@ def create_jarvis(identity=None, personality=None, values=None,
                   event_bus=events, internal_state=state,
                   cognitive_router=cognitive_router, perception_engine=perception,
                   skill_registry=skill_registry)
-
     organs = {
         "memory": memory, "experience": experience_engine, "evaluator": evaluator,
         "knowledge_builder": knowledge_builder, "consolidator": consolidator,
@@ -80,11 +75,9 @@ def create_jarvis(identity=None, personality=None, values=None,
         "skill_learner": skill_learner, "perception": perception,
         "cognitive_router": cognitive_router, "brain": brain,
     }
-
     jarvis = JarvisCore(identity=identity, personality=personality, values=values,
                         state=state, events=events, heartbeat=heartbeat, organs=organs)
-    if hasattr(jarvis, "idle_loop"):
-        jarvis.idle_loop = idle_loop
+    jarvis.idle_loop = idle_loop
     return jarvis
 
 
@@ -93,8 +86,11 @@ def start_jarvis(identity=None, personality=None, values=None,
                  idle_threshold: float = 30.0) -> JarvisCore:
     jarvis = create_jarvis(identity=identity, personality=personality, values=values,
                            heartbeat_interval=heartbeat_interval, idle_threshold=idle_threshold)
-    lifecycle = Lifecycle(jarvis)
+    lifecycle = Lifecycle(jarvis, internal_state=jarvis.state,
+                          event_bus=jarvis.events, heartbeat=jarvis.heartbeat)
+    jarvis.lifecycle = lifecycle
     lifecycle.start()
+    jarvis.start()
     return jarvis
 
 
@@ -102,8 +98,17 @@ def stop_jarvis(jarvis: Optional[JarvisCore]) -> None:
     if jarvis is None:
         return
     try:
-        Lifecycle(jarvis).stop()
+        lifecycle = getattr(jarvis, "lifecycle", None)
+        if lifecycle is None:
+            lifecycle = Lifecycle(jarvis, internal_state=jarvis.state,
+                                  event_bus=jarvis.events, heartbeat=jarvis.heartbeat)
+        lifecycle.stop()
     except Exception:
+        try:
+            if hasattr(jarvis, "heartbeat") and jarvis.heartbeat is not None:
+                jarvis.heartbeat.stop()
+        except Exception:
+            pass
         try:
             if hasattr(jarvis, "stop"):
                 jarvis.stop()
