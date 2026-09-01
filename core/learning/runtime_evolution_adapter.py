@@ -15,10 +15,10 @@ class RuntimeEvolutionAdapter:
     """
 
     TARGET = "organism_runtime"
-    VERSION = "0.1.0"
+    VERSION = "0.1.1"
 
-    def __init__(self, state=None):
-        self.state = state
+    def __init__(self, event_bus=None):
+        self.event_bus = event_bus
 
     def __call__(self, proposal: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(proposal, dict):
@@ -42,10 +42,10 @@ class RuntimeEvolutionAdapter:
             "next_cycle_ready": True,
         }
 
-        if self.state is not None:
-            record_event = getattr(self.state, "record_event", None)
-            if callable(record_event):
-                record_event(
+        if self.event_bus is not None:
+            emit = getattr(self.event_bus, "emit", None)
+            if callable(emit):
+                emit(
                     "EVOLUTION_RUNTIME_APPLIED",
                     handoff,
                     source="runtime_evolution_adapter",
