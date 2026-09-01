@@ -159,11 +159,19 @@ def stop_jarvis(jarvis: Optional[JarvisCore]) -> None:
     if jarvis is None:
         return
     try:
-        if getattr(jarvis, "lifecycle", None) is not None:
-            jarvis.lifecycle.stop()
+        lifecycle = getattr(jarvis, "lifecycle", None)
+        if lifecycle is None:
+            lifecycle = Lifecycle(jarvis, internal_state=jarvis.state,
+                                  event_bus=jarvis.event_bus, heartbeat=jarvis.heartbeat)
+        lifecycle.stop()
     except Exception:
-        pass
-    try:
-        jarvis.stop()
-    except Exception:
-        pass
+        try:
+            if hasattr(jarvis, "heartbeat") and jarvis.heartbeat is not None:
+                jarvis.heartbeat.stop()
+        except Exception:
+            pass
+        try:
+            if hasattr(jarvis, "stop"):
+                jarvis.stop()
+        except Exception:
+            pass
