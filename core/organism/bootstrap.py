@@ -62,7 +62,7 @@ def create_jarvis(identity=None, personality=None, values=None,
     # Phase 4: register exactly one concrete, narrow runtime adapter.
     # The adapter cannot edit source code and only accepts the explicit
     # allowlisted target "organism_runtime".
-    runtime_evolution_adapter = RuntimeEvolutionAdapter(state=state)
+    runtime_evolution_adapter = RuntimeEvolutionAdapter(event_bus=events)
     evolution.register_adapter(
         RuntimeEvolutionAdapter.TARGET,
         runtime_evolution_adapter,
