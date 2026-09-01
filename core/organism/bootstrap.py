@@ -59,10 +59,13 @@ def create_jarvis(identity=None, personality=None, values=None,
         memory_manager=memory,
     )
 
-    # Phase 4: register exactly one concrete, narrow runtime adapter.
-    # The adapter cannot edit source code and only accepts the explicit
-    # allowlisted target "organism_runtime".
-    runtime_evolution_adapter = RuntimeEvolutionAdapter(event_bus=events)
+    # Phase 4-6: one narrow, allowlisted runtime adapter.
+    # It can only materialize validated/approved runtime profile changes;
+    # it cannot edit source code or import executable proposal content.
+    runtime_evolution_adapter = RuntimeEvolutionAdapter(
+        event_bus=events,
+        memory_manager=memory,
+    )
     evolution.register_adapter(
         RuntimeEvolutionAdapter.TARGET,
         runtime_evolution_adapter,
@@ -105,8 +108,6 @@ def create_jarvis(identity=None, personality=None, values=None,
         executor=brain.execute_autonomous_step,
     )
 
-    # Heartbeat remains infrastructure-only. Bootstrap connects its
-    # idle signal to the already-wired IdleLoop through EventBus.
     def _on_heartbeat(event) -> None:
         payload = getattr(event, "payload", {}) or {}
         if payload.get("idle"):

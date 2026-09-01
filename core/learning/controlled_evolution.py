@@ -13,23 +13,9 @@ class ControlledEvolutionEngine(EvolutionEngine):
     This subclass adds the final controlled handoff into explicit
     runtime adapters. It never edits source files or imports arbitrary
     code from a proposal.
-
-    Flow:
-        SelfEvaluator
-          ↓
-        Proposal → Validation → Approval
-          ↓
-        ControlledEvolutionEngine
-          ↓
-        Explicit registered adapter
-          ↓
-        APPLIED
-
-    An approved proposal without a registered adapter is deliberately
-    blocked instead of being marked APPLIED.
     """
 
-    VERSION = "0.2.0-controlled"
+    VERSION = "0.3.0-controlled"
 
     def __init__(self, *args, adapters: Optional[Dict[str, Callable[..., Any]]] = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -89,8 +75,31 @@ class ControlledEvolutionEngine(EvolutionEngine):
         self._emit("EVOLUTION_EXECUTED", self.last_execution)
         return applied
 
+    def rollback_runtime(self, revision_id: str, target: str = "organism_runtime") -> Dict[str, Any]:
+        """Rollback only through the explicitly registered runtime adapter."""
+        if target != "organism_runtime":
+            raise PermissionError("Runtime rollback is allowlisted to organism_runtime.")
+        handler = self._adapters.get(target)
+        rollback = getattr(handler, "rollback", None)
+        if not callable(rollback):
+            raise RuntimeError("Registered runtime adapter does not support rollback.")
+        result = rollback(revision_id)
+        self._emit(
+            "EVOLUTION_ROLLBACK",
+            {"target": target, "revision_id": result.get("revision_id"), "rolled_back_to": revision_id},
+        )
+        return result
+
+    def runtime_state(self, target: str = "organism_runtime") -> Dict[str, Any]:
+        handler = self._adapters.get(target)
+        snapshot = getattr(handler, "snapshot", None)
+        if not callable(snapshot):
+            return {}
+        return snapshot()
+
     def statistics(self) -> Dict[str, Any]:
         result = super().statistics()
         result["adapter_targets"] = self.adapter_targets()
         result["last_execution"] = self.last_execution
+        result["runtime_state"] = self.runtime_state()
         return result
