@@ -1,88 +1,74 @@
 from __future__ import annotations
 
 from types import MethodType
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
+from ..cognition.semantic_understanding.bridge_to_cognition import SemanticUnderstanding
 from .engine import SemanticUnderstandingEngine
 
 
 class SemanticBrainAdapter:
-    """Attach semantic understanding to the existing Brain without rewriting it.
+    """Attach neuro-symbolic understanding to Brain without changing its lifecycle.
 
-    This is intentionally an integration seam. The locked Brain lifecycle stays
-    intact; semantic parsing enriches retrieval and supplies fact candidates to
-    the existing Experience -> LearningCoordinator -> KnowledgeBuilder path.
+    Brain remains the orchestrator. The adapter enriches its existing memory
+    context and leaves routing, action, learning, and evolution boundaries intact.
     """
 
-    VERSION = "0.1.0"
+    VERSION = "0.2.0"
 
-    def __init__(self, engine: Optional[SemanticUnderstandingEngine] = None):
+    def __init__(self, engine: Optional[SemanticUnderstandingEngine] = None,
+                 semantic: Optional[SemanticUnderstanding] = None):
         self.engine = engine or SemanticUnderstandingEngine()
+        self.semantic = semantic
 
     def attach(self, brain: Any) -> Any:
         if getattr(brain, "_semantic_understanding_attached", False):
             return brain
-
+        if self.semantic is None:
+            memory_manager = getattr(brain, "memory", None)
+            semantic_memory = getattr(memory_manager, "semantic", None)
+            self.semantic = SemanticUnderstanding(semantic_memory=semantic_memory)
         brain.semantic_understanding = self
         self._wrap_build_context(brain)
-        self._wrap_think_and_respond(brain)
         brain._semantic_understanding_attached = True
         return brain
 
     def _wrap_build_context(self, brain: Any) -> None:
         original = brain.build_context
-        engine = self.engine
+        symbolic_engine = self.engine
+        semantic = self.semantic
 
-        def build_context_with_semantics(this, query=None, subject=None, recent_limit=5, knowledge_limit=10):
-            context = original(query=query, subject=subject, recent_limit=recent_limit, knowledge_limit=knowledge_limit)
-            semantic = engine.understand(query or "", context=context)
-            context["semantic_understanding"] = semantic
-            candidates = semantic.get("fact_candidates") or []
+        def build_context_with_semantics(this, query=None, subject=None,
+                                         recent_limit=5, knowledge_limit=10):
+            context = original(query=query, subject=subject,
+                               recent_limit=recent_limit, knowledge_limit=knowledge_limit)
+            text = str(query or "")
+            if not text or semantic is None:
+                return context
+
+            integrated = semantic.understand(
+                text, context=context, retrieve=True, retrieval_limit=knowledge_limit
+            )
+            legacy = symbolic_engine.understand(text, context=context)
+            candidates = legacy.get("fact_candidates") or []
+            integrated["fact_candidates"] = candidates
+            integrated["legacy_semantic"] = legacy
+            context["semantic_understanding"] = integrated
+
             if candidates:
                 existing = list(context.get("relevant_knowledge") or [])
                 existing.append({"semantic_fact_candidates": candidates})
                 context["relevant_knowledge"] = existing
+
+            evidence = integrated.get("evidence") or {}
+            if evidence.get("graph"):
+                existing_graph = list(context.get("graph_relations") or [])
+                seen = {repr(item) for item in existing_graph}
+                for relation in evidence["graph"]:
+                    if repr(relation) not in seen:
+                        existing_graph.append(relation)
+                        seen.add(repr(relation))
+                context["graph_relations"] = existing_graph
             return context
 
         brain.build_context = MethodType(build_context_with_semantics, brain)
-
-    def _wrap_think_and_respond(self, brain: Any) -> None:
-        original = brain.think_and_respond
-        engine = self.engine
-
-        def think_with_semantics(this, user_input, identity_profile=None, source="cli"):
-            response = original(user_input, identity_profile=identity_profile, source=source)
-            semantic = engine.understand(user_input)
-
-            outcome: Dict[str, Any] = {
-                "value": response,
-                "semantic_understanding": semantic,
-            }
-            candidates = semantic.get("fact_candidates") or []
-            if candidates:
-                strongest = max(candidates, key=lambda item: float(item.get("confidence", 0.0)))
-                outcome.update({
-                    "subject": strongest["subject"],
-                    "predicate": strongest["predicate"],
-                    "value": strongest["value"],
-                    "semantic_fact_candidates": candidates,
-                })
-
-            try:
-                brain._enqueue_learning(
-                    event_type="USER_CHAT",
-                    context={
-                        "user_input": str(user_input or ""),
-                        "semantic_understanding": semantic,
-                    },
-                    action={"jarvis_response": response},
-                    outcome=outcome,
-                    source=source,
-                    importance=0.6 if candidates else 0.2,
-                )
-            except Exception as exc:
-                print(f"[SemanticUnderstanding] learning handoff warning: {exc}")
-
-            return response
-
-        brain.think_and_respond = MethodType(think_with_semantics, brain)

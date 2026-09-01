@@ -27,6 +27,7 @@ from ..autonomy.idle_loop import IdleLoop
 from ..skills.skill_registry import SkillRegistry
 from ..skills.skill_executor import SkillExecutor
 from ..skills.skill_learner import SkillLearner
+from ..cognition.semantic_understanding.bridge_to_cognition import SemanticUnderstanding
 from ..semantic_understanding.brain_adapter import SemanticBrainAdapter
 
 
@@ -59,19 +60,11 @@ def create_jarvis(identity=None, personality=None, values=None,
         internal_state=state,
         memory_manager=memory,
     )
-
-    # Phase 4-6: one narrow, allowlisted runtime adapter.
-    # It can only materialize validated/approved runtime profile changes;
-    # it cannot edit source code or import executable proposal content.
     runtime_evolution_adapter = RuntimeEvolutionAdapter(
         event_bus=events,
         memory_manager=memory,
     )
-    evolution.register_adapter(
-        RuntimeEvolutionAdapter.TARGET,
-        runtime_evolution_adapter,
-    )
-
+    evolution.register_adapter(RuntimeEvolutionAdapter.TARGET, runtime_evolution_adapter)
     goal_manager = GoalManager(store=memory.store)
     curiosity = Curiosity()
     scheduler = Scheduler()
@@ -99,10 +92,9 @@ def create_jarvis(identity=None, personality=None, values=None,
         llm_bridge=llm_bridge,
     )
 
-    # Semantic understanding is an additive cognitive substrate. It enriches
-    # retrieval and produces fact candidates for the existing learning gates;
-    # it does not bypass Brain, SelfEvaluator, KnowledgeBuilder, or approval.
-    semantic_understanding = SemanticBrainAdapter()
+    # Neuro-symbolic integration uses the existing SemanticMemory substrate.
+    semantic = SemanticUnderstanding(semantic_memory=memory.semantic)
+    semantic_understanding = SemanticBrainAdapter(semantic=semantic)
     semantic_understanding.attach(brain)
 
     idle_loop = IdleLoop(
