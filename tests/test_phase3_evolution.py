@@ -25,7 +25,7 @@ class Phase3EvolutionLifecycleTests(unittest.TestCase):
         try:
             evolution = jarvis.get_organ("evolution")
             self.assertIsInstance(evolution, ControlledEvolutionEngine)
-            self.assertEqual(evolution.adapter_targets(), [])
+            self.assertIn("organism_runtime", evolution.adapter_targets())
         finally:
             stop_jarvis(jarvis)
 
