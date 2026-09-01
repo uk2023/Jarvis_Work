@@ -9,12 +9,19 @@ from core.organism.bootstrap import create_jarvis
 class BrainIdleWiringTests(unittest.TestCase):
     """Verify the runtime path Heartbeat -> EventBus -> IdleLoop -> Brain."""
 
+    @staticmethod
+    def assert_bound_method_targets(testcase, bound_method, owner, method_name):
+        testcase.assertIs(bound_method.__self__, owner)
+        testcase.assertEqual(bound_method.__func__.__name__, method_name)
+
     def test_heartbeat_idle_event_reaches_idle_loop(self):
         jarvis = create_jarvis(heartbeat_interval=0.5, idle_threshold=0.5)
         idle_loop = jarvis.get_organ("idle_loop")
+        brain = jarvis.get_organ("brain")
+
         self.assertIsNotNone(idle_loop)
         self.assertIs(jarvis.idle_loop, idle_loop)
-        self.assertIs(idle_loop.executor, jarvis.get_organ("brain").execute_autonomous_step)
+        self.assert_bound_method_targets(self, idle_loop.executor, brain, "execute_autonomous_step")
 
         calls = []
         original_step = idle_loop.step
@@ -49,12 +56,14 @@ class BrainIdleWiringTests(unittest.TestCase):
         jarvis = create_jarvis()
         idle_loop = jarvis.get_organ("idle_loop")
         brain = jarvis.get_organ("brain")
+        perception = jarvis.get_organ("perception")
+        router = jarvis.get_organ("cognitive_router")
 
         self.assertIsNotNone(idle_loop)
         self.assertIsNotNone(brain)
-        self.assertIs(idle_loop.executor, brain.execute_autonomous_step)
-        self.assertIs(jarvis.get_organ("perception"), brain.perception_engine)
-        self.assertIs(jarvis.get_organ("cognitive_router"), brain.cognitive_router)
+        self.assert_bound_method_targets(self, idle_loop.executor, brain, "execute_autonomous_step")
+        self.assertIs(brain.perception_engine, perception)
+        self.assertIs(brain.cognitive_router, router)
 
 
 if __name__ == "__main__":
