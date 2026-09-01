@@ -516,7 +516,7 @@ class LockedBlueprintLLMBoundaryTests(unittest.TestCase):
         bridge.generate_response = Mock(return_value=(
             '{"response":"I remember.","memory":{"has_fact":true,'
             '"subject":"jarvis","predicate":"mode","value":"offline"}}'
-        )
+        ))
         result = bridge.generate_combined("system", "hello")
         self.assertEqual(result["response"], "I remember.")
         self.assertEqual(result["memory_signal"]["predicate"], "mode")
