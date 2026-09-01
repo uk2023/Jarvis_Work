@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+import pathlib
+import sys
 import time
 import unittest
+
+# Allow both `python3 -m unittest ...` and direct execution from repo root.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from core.organism.bootstrap import create_jarvis
 
@@ -62,7 +69,10 @@ class BrainIdleWiringTests(unittest.TestCase):
         self.assertIsNotNone(idle_loop)
         self.assertIsNotNone(brain)
         self.assert_bound_method_targets(self, idle_loop.executor, brain, "execute_autonomous_step")
-        self.assertIs(brain.perception_engine, perception)
+        # Brain exposes the perception organ as `perception` (not
+        # `perception_engine`). Keep the assertion aligned with the
+        # actual Brain API rather than testing a nonexistent attribute.
+        self.assertIs(brain.perception, perception)
         self.assertIs(brain.cognitive_router, router)
 
 
