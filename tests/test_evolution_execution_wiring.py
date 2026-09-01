@@ -10,7 +10,8 @@ class EvolutionExecutionWiringTests(unittest.TestCase):
         try:
             evolution = jarvis.get_organ("evolution")
             self.assertIsInstance(evolution, ControlledEvolutionEngine)
-            self.assertEqual(evolution.adapter_targets(), [])
+            self.assertEqual(evolution.adapter_targets(), ["organism_runtime"])
+            self.assertIn("runtime_evolution_adapter", jarvis.organs)
         finally:
             stop_jarvis(jarvis)
 
