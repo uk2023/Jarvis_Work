@@ -7,12 +7,13 @@ class SemanticUnderstandingTests(unittest.TestCase):
     def setUp(self):
         self.engine = SemanticUnderstandingEngine()
 
-    def test_hinglish_name_fact(self):
+    def test_hinglish_relation_name_fact(self):
         result = self.engine.understand("mera ex ka nan Devyana hai")
         facts = result["fact_candidates"]
         self.assertTrue(facts)
+        self.assertEqual(facts[0]["subject"], "ex")
+        self.assertEqual(facts[0]["predicate"], "name")
         self.assertEqual(facts[0]["value"], "Devyana")
-        self.assertIn("name", facts[0]["predicate"])
 
     def test_english_name_fact(self):
         result = self.engine.understand("my name is Ujjwal")
