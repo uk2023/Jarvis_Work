@@ -18,6 +18,7 @@ from ..learning.self_evaluator import SelfEvaluator
 from ..learning.knowledge_builder import KnowledgeBuilder
 from ..learning.learning_coordinator import LearningCoordinator
 from ..learning.controlled_evolution import ControlledEvolutionEngine
+from ..learning.runtime_evolution_adapter import RuntimeEvolutionAdapter
 from ..autonomy.curiosity import Curiosity
 from ..autonomy.goal_manager import GoalManager
 from ..autonomy.planner import Planner
@@ -57,6 +58,16 @@ def create_jarvis(identity=None, personality=None, values=None,
         internal_state=state,
         memory_manager=memory,
     )
+
+    # Phase 4: register exactly one concrete, narrow runtime adapter.
+    # The adapter cannot edit source code and only accepts the explicit
+    # allowlisted target "organism_runtime".
+    runtime_evolution_adapter = RuntimeEvolutionAdapter(state=state)
+    evolution.register_adapter(
+        RuntimeEvolutionAdapter.TARGET,
+        runtime_evolution_adapter,
+    )
+
     goal_manager = GoalManager(store=memory.store)
     curiosity = Curiosity()
     scheduler = Scheduler()
@@ -113,6 +124,7 @@ def create_jarvis(identity=None, personality=None, values=None,
         "skill_learner": skill_learner, "perception": perception,
         "cognitive_router": cognitive_router, "brain": brain,
         "llm_bridge": llm_bridge,
+        "runtime_evolution_adapter": runtime_evolution_adapter,
     }
     jarvis = JarvisCore(identity=identity, personality=personality, values=values,
                         state=state, event_bus=events, heartbeat=heartbeat, organs=organs)
