@@ -27,6 +27,7 @@ from ..autonomy.idle_loop import IdleLoop
 from ..skills.skill_registry import SkillRegistry
 from ..skills.skill_executor import SkillExecutor
 from ..skills.skill_learner import SkillLearner
+from ..semantic_understanding.brain_adapter import SemanticBrainAdapter
 
 
 def create_jarvis(identity=None, personality=None, values=None,
@@ -97,6 +98,13 @@ def create_jarvis(identity=None, personality=None, values=None,
         skill_executor=skill_executor,
         llm_bridge=llm_bridge,
     )
+
+    # Semantic understanding is an additive cognitive substrate. It enriches
+    # retrieval and produces fact candidates for the existing learning gates;
+    # it does not bypass Brain, SelfEvaluator, KnowledgeBuilder, or approval.
+    semantic_understanding = SemanticBrainAdapter()
+    semantic_understanding.attach(brain)
+
     idle_loop = IdleLoop(
         goal_manager=goal_manager,
         curiosity=curiosity,
@@ -125,6 +133,7 @@ def create_jarvis(identity=None, personality=None, values=None,
         "skill_learner": skill_learner, "perception": perception,
         "cognitive_router": cognitive_router, "brain": brain,
         "llm_bridge": llm_bridge,
+        "semantic_understanding": semantic_understanding,
         "runtime_evolution_adapter": runtime_evolution_adapter,
     }
     jarvis = JarvisCore(identity=identity, personality=personality, values=values,
@@ -150,19 +159,11 @@ def stop_jarvis(jarvis: Optional[JarvisCore]) -> None:
     if jarvis is None:
         return
     try:
-        lifecycle = getattr(jarvis, "lifecycle", None)
-        if lifecycle is None:
-            lifecycle = Lifecycle(jarvis, internal_state=jarvis.state,
-                                  event_bus=jarvis.event_bus, heartbeat=jarvis.heartbeat)
-        lifecycle.stop()
+        if getattr(jarvis, "lifecycle", None) is not None:
+            jarvis.lifecycle.stop()
     except Exception:
-        try:
-            if hasattr(jarvis, "heartbeat") and jarvis.heartbeat is not None:
-                jarvis.heartbeat.stop()
-        except Exception:
-            pass
-        try:
-            if hasattr(jarvis, "stop"):
-                jarvis.stop()
-        except Exception:
-            pass
+        pass
+    try:
+        jarvis.stop()
+    except Exception:
+        pass
