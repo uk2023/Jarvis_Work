@@ -57,7 +57,7 @@ class LearningCoordinator:
                 proposals = observe(experience)
                 self.skill_observation_count += 1
                 result["skill_proposals"] = proposals
-                self.skill_proposal_count = len(self.list_skill_proposals())
+                self.skill_proposal_count = len(proposals or [])
                 if proposals:
                     self._emit("SKILL_PROPOSALS_GENERATED", {"proposals": proposals})
         self.learning_count += 1
