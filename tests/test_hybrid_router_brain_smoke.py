@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from core.orchestration.cognitive_router import CognitiveRouter
-from core.orchestration.llm_optional_brain import LLMOptionalBrain
+from core.orchestration.brain import Brain
 from core.skills.skill_registry import SkillRegistry
 
 
@@ -52,7 +52,7 @@ class HybridRouterBrainSmokeTests(unittest.TestCase):
             "source": "test",
         })
         llm = FakeLLM()
-        brain = LLMOptionalBrain(
+        brain = Brain(
             perception_engine=perception,
             skill_registry=registry,
             cognitive_router=CognitiveRouter(),

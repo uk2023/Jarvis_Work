@@ -7,7 +7,7 @@ from .internal_state import InternalState
 from .event_bus import EventBus
 from .heartbeat import Heartbeat
 from .lifecycle import Lifecycle
-from core.orchestration.llm_optional_brain import LLMOptionalBrain as Brain
+from core.orchestration.brain import Brain
 from core.orchestration.llm_bridge import HybridLLMBridge
 from core.orchestration.cognitive_router import CognitiveRouter
 from core.orchestration.perception import PerceptionEngine

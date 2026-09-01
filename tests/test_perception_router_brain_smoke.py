@@ -1,6 +1,6 @@
 import unittest
 
-from core.orchestration.llm_optional_brain import LLMOptionalBrain
+from core.orchestration.brain import Brain
 from core.orchestration.perception import PerceptionEngine, PerceptionResult
 from core.orchestration.cognitive_router import CognitiveRouter
 from core.skills.skill_registry import SkillRegistry
@@ -40,7 +40,7 @@ class FakeLLM:
         }
 
 
-class SmokeBrain(LLMOptionalBrain):
+class SmokeBrain(Brain):
     """Keep the smoke test focused on cognition wiring, not persistence."""
 
     def build_context(self, query, recent_limit=3):

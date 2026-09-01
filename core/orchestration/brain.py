@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import re
 import time
+from .cognitive_router import CognitiveRouter
+from .perception import PerceptionEngine, LLMPerceptionProvider
+from ..skills.skill_executor import SkillExecutor
 from typing import Any, Dict, Optional
 
 from ..learning.learning_queue import AsyncLearningQueue
@@ -139,6 +142,10 @@ class Brain:
         planner=None,
         goal_manager=None,
         llm_bridge=None,
+        cognitive_router=None,
+        perception_engine=None,
+        skill_registry=None,
+        skill_executor=None,
         auto_accept_knowledge: bool = True,
     ):
         # =========================================================
@@ -162,6 +169,31 @@ class Brain:
         self.planner = planner
         self.goal_manager = goal_manager
         self.llm = llm_bridge
+
+        # =========================================================
+        # COGNITION / PERCEPTION / SKILLS
+        # =========================================================
+
+        self.cognitive_router = cognitive_router or CognitiveRouter()
+        self.skill_registry = skill_registry
+        self.skill_executor = (
+            skill_executor
+            if skill_executor is not None
+            else (
+                SkillExecutor(skill_registry)
+                if skill_registry is not None
+                else None
+            )
+        )
+        self.perception = perception_engine or PerceptionEngine(state=self.state)
+
+        if self.llm is not None:
+            self.set_llm_bridge(self.llm)
+
+        self.last_cognitive_decision: Optional[Dict[str, Any]] = None
+        self.last_perception: Optional[Dict[str, Any]] = None
+        self.last_brain_decision: Optional[Dict[str, Any]] = None
+        self.last_action_response: Optional[Dict[str, Any]] = None
 
         # =========================================================
         # LEARNING POLICY
@@ -265,186 +297,510 @@ class Brain:
         identity_profile: Optional[Dict[str, Any]] = None,
         source: str = "cli",
     ) -> str:
-    
         """
-        Synthesizes Identity, Memory Context, and User Input,
-        queries the LLM bridge (used purely as a voice — see
-        llm_bridge.py), and passes the resulting experience through
-        the full Organism Learning Pipeline so JARVIS actually
-        retains it instead of just generating a reply.
+        Canonical Brain entry point.
 
-        Also builds self.last_turn_trace — a single structured record
-        of exactly what happened this turn (timings, what was
-        retrieved, what typos were corrected, what memory signal came
-        back, background-queue status). cli.py's diagnostics AND the
-        web backend's /api/chat + /api/organism/state both read from
-        this same object, so both surfaces show identical real data
-        instead of each fabricating their own trace text.
+        Flow:
+            User Input
+              -> Perception
+              -> Cognitive Router
+              -> Goal / Native / Hybrid / LLM
+              -> Brain Decision
+              -> Action Response
+              -> Trace
+
+        The router is the authority for choosing the cognition route.
+        LLM is optional and is only required for routes that actually
+        need language cognition/synthesis.
         """
-        turn_start = time.time()
+        started = time.time()
+        user_input = str(user_input or "").strip()
 
+        self._emit(
+            "BRAIN_CYCLE_STARTED",
+            {
+                "source": source,
+                "user_input": user_input,
+            },
+        )
+
+        # ---------------------------------------------------------
+        # 1. PERCEPTION
+        # ---------------------------------------------------------
+        try:
+            perception = self._perceive(user_input)
+        except Exception as exc:
+            self.last_brain_decision = {
+                "mode": "error",
+                "status": "perception_failed",
+                "error": str(exc),
+            }
+            response = f"[Brain Perception Error: {exc}]"
+            self._record_action_response(
+                mode="error",
+                status="failed",
+                response=response,
+                error=str(exc),
+            )
+            self._trace(
+                user_input,
+                response,
+                {"mode": "error", "status": "perception_failed"},
+                {},
+                started,
+                self.llm is not None,
+            )
+            return response
+
+        # ---------------------------------------------------------
+        # 2. COGNITIVE ROUTING
+        # ---------------------------------------------------------
+        try:
+            route = self._route_cognition(user_input, perception)
+        except Exception as exc:
+            self.last_brain_decision = {
+                "mode": "error",
+                "status": "routing_failed",
+                "error": str(exc),
+            }
+            response = f"[Brain Routing Error: {exc}]"
+            self._record_action_response(
+                mode="error",
+                status="failed",
+                response=response,
+                error=str(exc),
+            )
+            self._trace(
+                user_input,
+                response,
+                {"mode": "error", "status": "routing_failed"},
+                perception,
+                started,
+                self.llm is not None,
+            )
+            return response
+
+        mode = str(route.get("mode", "llm")).lower()
+        intent = perception.get("intent") or {}
+        skill_name = (
+            intent.get("skill")
+            or intent.get("name")
+            if isinstance(intent, dict)
+            else None
+        )
+
+        # ---------------------------------------------------------
+        # 3. GOAL ROUTE
+        # ---------------------------------------------------------
+        if mode == "goal":
+            perceived_goal = perception.get("goal")
+
+            result = self._register_and_plan_goal(perceived_goal)
+
+            if result.get("status") != "planned":
+                response = "Goal could not be planned."
+                self.last_brain_decision = {
+                    "mode": "goal",
+                    "status": result.get("status", "failed"),
+                    "goal": perceived_goal,
+                }
+                self._record_action_response(
+                    mode="goal",
+                    status="failed",
+                    response=response,
+                    action={"goal": perceived_goal},
+                )
+            else:
+                goal = result.get("goal") or {}
+                plan = result.get("plan") or []
+
+                response = (
+                    f"Goal accepted and planned: {goal.get('text', '')}"
+                    if goal.get("text")
+                    else "Goal accepted and planned."
+                )
+
+                self.last_brain_decision = {
+                    "mode": "goal",
+                    "status": "planned",
+                    "goal": goal,
+                    "plan": plan,
+                }
+
+                self._record_action_response(
+                    mode="goal",
+                    status="planned",
+                    response=response,
+                    action={
+                        "goal": goal,
+                        "plan": plan,
+                    },
+                )
+
+            self._trace(
+                user_input,
+                response,
+                route,
+                perception,
+                started,
+                self.llm is not None,
+            )
+            return response
+
+        # ---------------------------------------------------------
+        # 4. NATIVE / TOOL ROUTE
+        # ---------------------------------------------------------
+        if mode in {"tool", "native"}:
+            if self.skill_executor is None or not skill_name:
+                response = self._fallback(user_input)
+
+                self.last_brain_decision = {
+                    "mode": "native",
+                    "status": "no_capability",
+                    "skill": skill_name,
+                }
+
+                self._record_action_response(
+                    mode="native",
+                    status="failed",
+                    response=response,
+                    action={"skill": skill_name},
+                    error="capability_not_available",
+                )
+
+                self._trace(
+                    user_input,
+                    response,
+                    route,
+                    perception,
+                    started,
+                    self.llm is not None,
+                )
+                return response
+
+            try:
+                native_result = self.skill_executor.execute(
+                    skill_name,
+                    user_input=user_input,
+                )
+
+                response = str(native_result)
+
+                self.last_brain_decision = {
+                    "mode": "native",
+                    "status": "completed",
+                    "skill": skill_name,
+                    "action_result": response,
+                }
+
+                self._record_action_response(
+                    mode="native",
+                    status="completed",
+                    response=response,
+                    action={"skill": skill_name},
+                )
+
+                self._trace(
+                    user_input,
+                    response,
+                    route,
+                    perception,
+                    started,
+                    self.llm is not None,
+                )
+                return response
+
+            except Exception as exc:
+                response = f"[Brain Action Error: {exc}]"
+
+                self.last_brain_decision = {
+                    "mode": "native",
+                    "status": "failed",
+                    "skill": skill_name,
+                    "error": str(exc),
+                }
+
+                self._record_action_response(
+                    mode="native",
+                    status="failed",
+                    response=response,
+                    action={"skill": skill_name},
+                    error=str(exc),
+                )
+
+                self._trace(
+                    user_input,
+                    response,
+                    route,
+                    perception,
+                    started,
+                    self.llm is not None,
+                )
+                return response
+
+        # ---------------------------------------------------------
+        # 5. HYBRID ROUTE
+        # ---------------------------------------------------------
+        if mode == "hybrid":
+            if self.skill_executor is None or not skill_name:
+                response = self._fallback(user_input)
+
+                self.last_brain_decision = {
+                    "mode": "hybrid",
+                    "status": "no_native_capability",
+                    "skill": skill_name,
+                }
+
+                self._record_action_response(
+                    mode="hybrid",
+                    status="failed",
+                    response=response,
+                    action={"skill": skill_name},
+                    error="capability_not_available",
+                )
+
+                self._trace(
+                    user_input,
+                    response,
+                    route,
+                    perception,
+                    started,
+                    self.llm is not None,
+                )
+                return response
+
+            try:
+                native_result = self.skill_executor.execute(
+                    skill_name,
+                    user_input=user_input,
+                )
+
+                synthesized = self._hybrid_synthesize(
+                    user_input=user_input,
+                    skill_name=skill_name,
+                    native_result=native_result,
+                    source=source,
+                )
+
+                response = str(synthesized)
+
+                self.last_brain_decision = {
+                    "mode": "hybrid",
+                    "status": "completed",
+                    "native_skill": skill_name,
+                    "native_result": str(native_result),
+                }
+
+                self._record_action_response(
+                    mode="hybrid",
+                    status="completed",
+                    response=response,
+                    action={
+                        "skill": skill_name,
+                        "native_result": str(native_result),
+                    },
+                )
+
+                self._trace(
+                    user_input,
+                    response,
+                    route,
+                    perception,
+                    started,
+                    self.llm is not None,
+                )
+                return response
+
+            except Exception as exc:
+                response = f"[Brain Hybrid Error: {exc}]"
+
+                self.last_brain_decision = {
+                    "mode": "hybrid",
+                    "status": "failed",
+                    "skill": skill_name,
+                    "error": str(exc),
+                }
+
+                self._record_action_response(
+                    mode="hybrid",
+                    status="failed",
+                    response=response,
+                    action={"skill": skill_name},
+                    error=str(exc),
+                )
+
+                self._trace(
+                    user_input,
+                    response,
+                    route,
+                    perception,
+                    started,
+                    self.llm is not None,
+                )
+                return response
+
+        # ---------------------------------------------------------
+        # 6. LLM / KNOWN / OTHER LANGUAGE ROUTE
+        # ---------------------------------------------------------
         if self.llm is None:
-            return "[Brain Error: LLM Bridge is not connected to Brain.]"
+            response = self._fallback(user_input)
 
-        # 0. Normalize known Hinglish typo forms BEFORE retrieval only.
-        #    The raw user_input is still what gets stored/shown.
+            self.last_brain_decision = {
+                "mode": mode,
+                "status": "llm_unavailable",
+            }
+
+            self._record_action_response(
+                mode=mode,
+                status="degraded",
+                response=response,
+            )
+
+            self._trace(
+                user_input,
+                response,
+                route,
+                perception,
+                started,
+                False,
+            )
+            return response
+
+        # Reuse the existing LLM + memory implementation, but do not
+        # recursively call think_and_respond(). The LLM bridge is the
+        # language cognition provider for this route.
         typo_result = self._normalize_hinglish_typos(user_input)
         retrieval_query = typo_result["normalized"]
-        typos_corrected = typo_result["corrections"]
 
-        # 1. Build Context from FAISS Vector Store + Knowledge Graph
-        mem_start = time.time()
         context = (
             self.build_context(query=retrieval_query, recent_limit=3)
             if hasattr(self, "build_context")
             else {}
         )
-        mem_duration = time.time() - mem_start
-        recent_memories = context.get("recent_experiences", [])
-        relevant_knowledge = context.get("relevant_knowledge", [])
-        graph_relations = context.get("graph_relations", [])
 
-        # 2. Parse Identity Info
         bot_name = "JARVIS"
         creator_name = "UK"
+
         if isinstance(identity_profile, dict):
             bot_name = identity_profile.get("name", bot_name)
             creator_name = identity_profile.get("creator", creator_name)
 
-        # 3. Strict Identity System Prompt
         system_prompt = (
-            f"SYSTEM IDENTITY INSTRUCTIONS (STRICT):\n"
-            f"1. You are {bot_name}, a self-contained cognitive AI organism running locally.\n"
-            f"2. The user talking to you is {creator_name}, your developer and creator.\n"
-            f"3. NEVER swap roles or claim to be {creator_name}.\n"
-            f"4. Communicate naturally, precisely, and conversationally in Hinglish.\n"
-            f"5. Keep responses loyal, calm, and too short.\n"
-            f"6. Dont use emojis in response.\n"
-            f"7. Behave and act alike Marvel iron man's JARVIS and give response savagely and funny.\n"
+            f"SYSTEM IDENTITY INSTRUCTIONS (STRICT):\\n"
+            f"1. You are {bot_name}, a self-contained cognitive AI organism running locally.\\n"
+            f"2. The user talking to you is {creator_name}, your developer and creator.\\n"
+            f"3. NEVER swap roles or claim to be {creator_name}.\\n"
+            f"4. Communicate naturally, precisely, and conversationally in Hinglish.\\n"
+            f"5. Keep responses loyal, calm, and concise.\\n"
+            f"6. Dont use emojis in response.\\n"
+            f"7. Behave alike Marvel Iron Man's JARVIS: savage, funny, and useful.\\n"
             f"8. Always loyal to {creator_name}."
         )
 
-        # 4. Context Formatting
         context_prompt = (
-            f"=== RETRIEVED MEMORIES ===\n{recent_memories if recent_memories else 'No previous memory match.'}\n\n"
-            f"=== SEMANTIC KNOWLEDGE ===\n{relevant_knowledge if relevant_knowledge else 'No direct facts found.'}\n\n"
-            f"=== KNOWLEDGE GRAPH EDGES ===\n{graph_relations if graph_relations else 'No graph nodes linked.'}\n\n"
-            f"=== CURRENT USER MESSAGE ===\n{creator_name}: {user_input}\n\n"
+            f"=== RETRIEVED MEMORIES ===\\n"
+            f"{context.get('recent_experiences', [])}\\n\\n"
+            f"=== SEMANTIC KNOWLEDGE ===\\n"
+            f"{context.get('relevant_knowledge', [])}\\n\\n"
+            f"=== KNOWLEDGE GRAPH EDGES ===\\n"
+            f"{context.get('graph_relations', [])}\\n\\n"
+            f"=== CURRENT USER MESSAGE ===\\n"
+            f"{creator_name}: {user_input}\\n\\n"
             f"{bot_name}:"
         )
 
-        # 5. LLM Inference — ONE call that returns both the reply and a
-        #    memory signal (see llm_bridge.generate_combined). This is
-        #    what replaces the old "reply call + separate fact-extraction
-        #    call" pattern: half the tokens, half the latency, and it
-        #    still keeps Qwen's role strictly to understand/reason/
-        #    respond/generate-signal — it never writes the DB itself.
-        fact: Optional[Dict[str, Any]] = None
-        llm_start = time.time()
         try:
-            combined_fn = getattr(self.llm, "generate_combined", None)
-            if callable(combined_fn):
-                result = combined_fn(
-                    system_prompt=system_prompt, user_input=context_prompt
+            generate_combined = getattr(self.llm, "generate_combined", None)
+
+            if callable(generate_combined):
+                combined = generate_combined(
+                    system_prompt=system_prompt,
+                    user_input=context_prompt,
                 )
-                cleaned_response = str(result.get("response", "")).strip()
-                fact = result.get("memory_signal")
+                response = str(
+                    combined.get("response", "")
+                    if isinstance(combined, dict)
+                    else combined
+                ).strip()
             else:
-                # Backward-compatible path for any LLM bridge that only
-                # implements the older generate_response() interface.
-                response = self.llm.generate_response(
-                    system_prompt=system_prompt, user_input=context_prompt
-                )
-                cleaned_response = (
-                    response.strip() if isinstance(response, str) else str(response)
-                )
-                fact = self._extract_fact(user_input, cleaned_response)
+                generate = getattr(self.llm, "generate", None)
+
+                if callable(generate):
+                    response = str(
+                        generate(
+                            system_prompt,
+                            context_prompt,
+                        )
+                    ).strip()
+                else:
+                    generate_response = getattr(
+                        self.llm,
+                        "generate_response",
+                        None,
+                    )
+
+                    if not callable(generate_response):
+                        raise AttributeError(
+                            "LLM bridge exposes neither generate_combined(), "
+                            "generate(), nor generate_response()."
+                        )
+
+                    response = str(
+                        generate_response(
+                            system_prompt=system_prompt,
+                            user_input=context_prompt,
+                        )
+                    ).strip()
+
+            if not response:
+                response = "..."
+
+            self.last_brain_decision = {
+                "mode": "llm",
+                "status": "completed",
+            }
+
+            self._record_action_response(
+                mode="llm",
+                status="completed",
+                response=response,
+            )
+
+            self._trace(
+                user_input,
+                response,
+                route,
+                perception,
+                started,
+                True,
+            )
+            return response
+
         except Exception as exc:
-            return f"[Brain Thinking Error: {exc}]"
-        llm_duration = time.time() - llm_start
+            response = f"[Brain Thinking Error: {exc}]"
 
-        if not cleaned_response:
-            cleaned_response = "..."
+            self.last_brain_decision = {
+                "mode": "llm",
+                "status": "failed",
+                "error": str(exc),
+            }
 
-        # 6. Hand the interaction to the learning pipeline — but
-        #    ASYNCHRONOUSLY. The user already has their reply; whether
-        #    this turn becomes persistent knowledge happens in the
-        #    background, in order, without adding latency to the chat.
-        outcome: Dict[str, Any] = {"status": "completed"}
-        if fact is not None:
-            outcome.update(fact)  # adds subject/predicate/value
+            self._record_action_response(
+                mode="llm",
+                status="failed",
+                response=response,
+                error=str(exc),
+            )
 
-        self._enqueue_learning(
-            event_type="USER_CHAT",
-            context={"user_input": user_input},
-            action={"jarvis_response": cleaned_response},
-            outcome=outcome,
-            source=source,
-            importance=0.6,
-        )
-
-        # 7. Update running telemetry + build the structured trace.
-        total_duration = time.time() - turn_start
-        self.total_turns += 1
-        self.total_latency_seconds += total_duration
-        # No real tokenizer wired into every LLM engine uniformly, so
-        # this is a word-count based estimate over what was actually
-        # sent/received this turn -- a real derived number, not a
-        # random placeholder.
-        approx_tokens = len(context_prompt.split()) + len(cleaned_response.split())
-        self.total_tokens_estimate += approx_tokens
-
-        # Do not fabricate similarity scores. Preserve only real
-        # fields returned by the retrieval layer.
-        vector_matches = []
-        for item in relevant_knowledge[:8]:
-            if isinstance(item, dict):
-                vector_matches.append(dict(item))
-            else:
-                vector_matches.append(item)
-
-        graph_edges = []
-        for rel in graph_relations[:12]:
-            if isinstance(rel, dict):
-                graph_edges.append({
-                    "subject": rel.get("subject") or rel.get("source"),
-                    "predicate": rel.get("predicate") or rel.get("relation"),
-                    "target": rel.get("target") or rel.get("value") or rel.get("object"),
-                })
-
-        queue_status = self._learning_queue.status()
-
-        self.last_turn_trace = {
-            "source": source,
-            "query": user_input,
-            "response_preview": cleaned_response[:200],
-            # EXACT result returned by the single build_context() call above.
-            # CLI/web inspectors consume this; no second retrieval is performed.
-            "memory_context": {
-                "recent_experiences": recent_memories,
-                "relevant_knowledge": relevant_knowledge,
-                "graph_relations": graph_relations,
-            },
-            "timings": {
-                "total": total_duration,
-                "memory": mem_duration,
-                "llm": llm_duration,
-            },
-            "memory": {
-                "recent_experiences": len(recent_memories),
-                "relevant_knowledge": len(relevant_knowledge),
-                "graph_relations": len(graph_relations),
-            },
-            "vector_matches": vector_matches,
-            "graph_edges": graph_edges,
-            "typos_corrected": typos_corrected,
-            "memory_signal": fact,
-            "learning_queue": queue_status,
-            "pipeline_success": True,
-            "timestamp": time.time(),
-        }
-
-        return cleaned_response
+            self._trace(
+                user_input,
+                response,
+                route,
+                perception,
+                started,
+                True,
+            )
+            return response
 
     # =============================================================
     # ASYNC LEARNING HAND-OFF
@@ -999,6 +1355,160 @@ class Brain:
         self.cycle_count += 1
         self.last_cycle_at = time.time()
         self.last_result = result
+
+    def set_llm_bridge(self, llm_bridge: Any) -> None:
+        self.llm = llm_bridge
+
+        if not hasattr(self, "perception") or self.perception is None:
+            return
+
+        self.perception.providers = [
+            provider
+            for provider in self.perception.providers
+            if getattr(provider, "name", None) != "llm"
+        ]
+
+        if llm_bridge is not None:
+            self.perception.add_provider(
+                LLMPerceptionProvider(llm_bridge)
+            )
+
+    def execute_autonomous_step(self, step: Dict[str, Any], goal: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Execute one planner-approved step through the Brain boundary."""
+        started = time.time()
+        step_data = dict(step or {})
+        action_name = step_data.get("action")
+        skill_name = step_data.get("capability") or step_data.get("skill") or action_name
+        self._emit("BRAIN_CYCLE_STARTED", {"source": "idle", "goal": goal or {}, "step": step_data})
+        if step_data.get("requires_confirmation") is True:
+            result = {"success": False, "status": "blocked_pending_confirmation", "action": action_name, "result": "confirmation_required"}
+            self.last_brain_decision = {"mode": "native", "source": "idle", "status": result["status"], "action": action_name}
+            self.last_action_response = result
+            self._emit("ACTION_RESPONSE_COMPLETED", result)
+            return result
+        if self.skill_executor is None or not skill_name:
+            result = {"success": False, "status": "no_capability", "action": action_name, "result": f"capability_not_available: {skill_name}"}
+            self.last_brain_decision = {"mode": "native", "source": "idle", "status": result["status"], "action": action_name}
+            self.last_action_response = result
+            self._emit("ACTION_RESPONSE_FAILED", result)
+            self._enqueue_learning(event_type="AUTONOMOUS_STEP", context={"goal": goal or {}, "step": step_data}, action={"skill": skill_name, "action": action_name}, outcome=result, source="idle", importance=0.3)
+            return result
+        try:
+            native_result = self.skill_executor.execute(skill_name, user_input=step_data.get("input", action_name))
+            result = {"success": True, "status": "completed", "action": action_name, "skill": skill_name, "result": str(native_result), "duration": time.time() - started}
+            self.last_brain_decision = {"mode": "native", "source": "idle", "status": "completed", "skill": skill_name, "action_result": str(native_result)}
+            self.last_action_response = result
+            self._emit("ACTION_RESPONSE_COMPLETED", result)
+            self._enqueue_learning(event_type="AUTONOMOUS_STEP", context={"goal": goal or {}, "step": step_data}, action={"skill": skill_name, "action": action_name, "result": str(native_result)}, outcome=result, source="idle", importance=0.5)
+            self._emit("BRAIN_CYCLE_COMPLETED", {"source": "idle", "brain_decision": self.last_brain_decision, "action_response": result, "duration": time.time() - started})
+            return result
+        except Exception as exc:
+            result = {"success": False, "status": "failed", "action": action_name, "skill": skill_name, "result": str(exc), "duration": time.time() - started}
+            self.last_brain_decision = {"mode": "native", "source": "idle", "status": "failed", "skill": skill_name, "error": str(exc)}
+            self.last_action_response = result
+            self._emit("ACTION_RESPONSE_FAILED", result)
+            self._enqueue_learning(event_type="AUTONOMOUS_STEP", context={"goal": goal or {}, "step": step_data}, action={"skill": skill_name, "action": action_name}, outcome=result, source="idle", importance=0.5)
+            return result
+
+    def _perceive(self, user_input: str) -> Dict[str, Any]:
+        context = self.build_context(query=user_input, recent_limit=3) if self.memory is not None else {}
+        result = self.perception.perceive(user_input, context=context)
+        payload = result.as_dict()
+        self.last_perception = payload
+        self._emit("PERCEPTION_COMPLETED", {"user_input": user_input, "perception": payload})
+        return payload
+
+    def _route_cognition(self, user_input: str, perception: Dict[str, Any]) -> Dict[str, Any]:
+        context = self.build_context(query=user_input, recent_limit=3) if self.memory is not None else {}
+        goals = []
+        if self.goal_manager is not None:
+            current_goal = getattr(self.goal_manager, "current_goal", None)
+            if current_goal is not None:
+                goals = [current_goal]
+        decision = self.cognitive_router.decide(user_input=user_input, context=context, skills=getattr(self.skill_registry, "skills", None), identity=None, goals=goals, perception=perception)
+        payload = decision.as_dict()
+        self.last_cognitive_decision = payload
+        if self.state is not None:
+            try:
+                self.state.update(last_route=decision.mode, confidence=decision.confidence, uncertainty=1.0 - decision.confidence)
+            except Exception:
+                pass
+        self._emit("COGNITION_ROUTED", {"user_input": user_input, "decision": payload})
+        return payload
+
+    def _register_and_plan_goal(self, perceived_goal: Any) -> Dict[str, Any]:
+        """Persist a user goal and plan it; execution remains Brain/idle-owned."""
+        if self.goal_manager is None:
+            return {"status": "goal_manager_unavailable", "goal": perceived_goal}
+        if isinstance(perceived_goal, dict):
+            text = str(perceived_goal.get("text") or perceived_goal.get("description") or "").strip()
+            priority = float(perceived_goal.get("priority", 0.7) or 0.7)
+        else:
+            text = str(perceived_goal or "").strip()
+            priority = 0.7
+        if not text:
+            return {"status": "invalid_goal", "goal": perceived_goal}
+        existing = next((g for g in self.goal_manager.pending() if str(g.get("text", "")).strip().lower() == text.lower()), None)
+        goal = existing or self.goal_manager.add(text=text, priority=priority, origin="user")
+        self.goal_manager.update_status(goal["id"], "active")
+        planner = getattr(self, "planner", None)
+        plan = goal.get("plan") or []
+        if not plan and planner is not None:
+            plan = planner.plan(goal)
+            self.goal_manager.set_plan(goal["id"], plan)
+            goal = self.goal_manager._find(goal["id"]) or goal
+        return {"status": "planned", "goal": goal, "plan": plan}
+
+    def _hybrid_synthesize(self, user_input: str, skill_name: str, native_result: Any, source: str) -> str:
+        if self.llm is None:
+            return str(native_result)
+        system_prompt = "You are JARVIS's response synthesizer. A native organism skill has already executed successfully. Do not invent actions or claim to execute anything. Return a concise user-facing response based only on the native result."
+        synthesis_input = f"User request: {user_input}\nNative skill: {skill_name}\nNative result: {native_result}"
+        try:
+            generate_combined = getattr(self.llm, "generate_combined", None)
+            if callable(generate_combined):
+                combined = generate_combined(system_prompt=system_prompt, user_input=synthesis_input)
+                if isinstance(combined, dict) and combined.get("response"):
+                    return str(combined["response"])
+            generate = getattr(self.llm, "generate", None)
+            if callable(generate):
+                return str(generate(system_prompt, synthesis_input)).strip()
+        except Exception as exc:
+            self.last_brain_decision = {"mode": "hybrid", "status": "native_success_llm_synthesis_failed", "error": str(exc)}
+        return str(native_result)
+
+    def attach_skill_registry(self, skill_registry: Any) -> None:
+        """Attach or replace the skill registry and its executor."""
+        self.skill_registry = skill_registry
+        self.skill_executor = (
+            SkillExecutor(skill_registry)
+            if skill_registry is not None
+            else None
+        )
+
+    def attach_skill_executor(self, skill_executor: Any) -> None:
+        self.skill_executor = skill_executor
+
+    def _record_action_response(self, *, mode: str, status: str, response: Any, action: Optional[Dict[str, Any]] = None, error: Optional[str] = None) -> str:
+        response_text = str(response)
+        record: Dict[str, Any] = {"mode": mode, "status": status, "response": response_text}
+        if action is not None:
+            record["action"] = action
+        if error is not None:
+            record["error"] = error
+        self.last_action_response = record
+        self._emit("ACTION_RESPONSE_COMPLETED", record)
+        return response_text
+
+    def _trace(self, user_input: str, response: str, route: Dict[str, Any], perception: Dict[str, Any], started: float, llm: bool) -> None:
+        self.last_turn_trace = {"source": "brain", "query": user_input, "response_preview": response[:200], "perception": perception, "cognitive_route": route, "brain_decision": self.last_brain_decision, "action_response": self.last_action_response, "llm_available": llm, "pipeline_success": True, "timings": {"total": time.time() - started}}
+        self._emit("BRAIN_CYCLE_COMPLETED", {"trace": self.last_turn_trace})
+
+    def _fallback(self, user_input: str) -> str:
+        lower = (user_input or "").strip().lower()
+        if lower in {"status", "health", "ping"}:
+            return "JARVIS Core ONLINE. LLM unavailable; operating in degraded cognitive mode."
+        return "JARVIS received the input, but no language cognition provider is currently available. Core organism remains active."
 
     def _emit(self, event_name: str, payload: Any = None) -> None:
         if self.events is None:

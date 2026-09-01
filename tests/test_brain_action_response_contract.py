@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from core.orchestration.cognitive_router import CognitiveRouter
-from core.orchestration.llm_optional_brain import LLMOptionalBrain
+from core.orchestration.brain import Brain
 from core.skills.skill_registry import SkillRegistry
 
 
@@ -32,7 +32,7 @@ class BrainActionResponseContractTests(unittest.TestCase):
             "intent": {"skill": "ping", "execution_mode": mode},
             "source": "test",
         })
-        brain = LLMOptionalBrain(
+        brain = Brain(
             perception_engine=perception,
             skill_registry=registry,
             cognitive_router=CognitiveRouter(),

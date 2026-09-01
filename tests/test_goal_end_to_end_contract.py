@@ -4,7 +4,7 @@ from core.autonomy.goal_manager import GoalManager
 from core.autonomy.idle_loop import IdleLoop
 from core.autonomy.planner import Planner
 from core.orchestration.cognitive_router import CognitiveRouter
-from core.orchestration.llm_optional_brain import LLMOptionalBrain
+from core.orchestration.brain import Brain
 from core.orchestration.perception import PerceptionEngine, PerceptionResult
 
 
@@ -39,7 +39,7 @@ class GoalEndToEndContractTests(unittest.TestCase):
         planner = Planner(llm_bridge=None)
         perception = PerceptionEngine(providers=[_GoalProvider()])
         executor = _Executor()
-        brain = LLMOptionalBrain(
+        brain = Brain(
             goal_manager=manager,
             planner=planner,
             cognitive_router=CognitiveRouter(),
