@@ -80,7 +80,7 @@ class Knowledge:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> Knowledge:
+    def from_dict(cls, data: Dict[str, Any]) -> "Knowledge":
         tags = data.get("tags", [])
         if isinstance(tags, str):
             try:
@@ -103,7 +103,7 @@ class Knowledge:
 
 class SemanticMemory:
     """Long-term knowledge store of JARVIS (Android PRoot Optimized)."""
-    VERSION = "0.3.5"
+    VERSION = "0.3.6"
 
     def __init__(self, db_path: str = "database/jarvis.db", faiss_index_path: str = "database/jarvis_faiss.index",
                  max_knowledge: int = 10000, model_path: str = "all-MiniLM-L6-v2.onnx", tokenizer_path: str = "tokenizer.json"):
@@ -186,12 +186,14 @@ class SemanticMemory:
 
     def _rebuild_faiss_batch(self, texts: List[str], ids: List[int]) -> None:
         vectors = self.embedder.encode(texts, show_progress_bar=False).astype(np.float32)
+        if vectors.ndim != 2 or vectors.shape[0] != len(ids) or vectors.shape[1] != self.vector_dim:
+            vectors = np.asarray(vectors, dtype=np.float32).reshape(len(ids), self.vector_dim)
         self.faiss_index = faiss.IndexIDMap2(faiss.IndexFlatL2(self.vector_dim))
-        self.faiss_index.add_with_ids(vectors, np.array(ids, dtype=np.int64))
+        self.faiss_index.add_with_ids(vectors, np.asarray(ids, dtype=np.int64))
         self._save_faiss_to_disk()
 
     def _faiss_single_vector(self, vector: np.ndarray) -> np.ndarray:
-        """Normalize a single embedding to FAISS's required (1, dimension) shape."""
+        """Normalize one embedding to FAISS's required (1, dimension) shape."""
         array = np.asarray(vector, dtype=np.float32)
         if array.size != self.vector_dim:
             raise ValueError(f"Embedding dimension mismatch: expected {self.vector_dim} values, got shape {array.shape}.")
@@ -226,12 +228,11 @@ class SemanticMemory:
                     if existing_faiss_id is not None:
                         text_to_embed = f"{existing.subject} {existing.predicate} {str(existing.value)}"
                         vector = self.embedder.encode(text_to_embed).astype(np.float32)
-                        self.faiss_index.remove_ids(np.array([existing_faiss_id], dtype=np.int64))
-                        self.faiss_index.add_with_ids(self._faiss_single_vector(vector), np.array([existing_faiss_id], dtype=np.int64))
+                        self.faiss_index.remove_ids(np.asarray([existing_faiss_id], dtype=np.int64))
+                        self.faiss_index.add_with_ids(self._faiss_single_vector(vector), np.asarray([existing_faiss_id], dtype=np.int64))
                 self.updated_at = existing.updated_at
                 self._save_faiss_to_disk()
                 return existing
-
             now = time.time()
             knowledge = Knowledge(
                 knowledge_id=str(uuid.uuid4()), subject=subject, predicate=predicate, value=value,
@@ -244,7 +245,7 @@ class SemanticMemory:
             self._add_to_graph(knowledge)
             text_to_embed = f"{knowledge.subject} {knowledge.predicate} {str(knowledge.value)}"
             vector = self.embedder.encode(text_to_embed).astype(np.float32)
-            self.faiss_index.add_with_ids(self._faiss_single_vector(vector), np.array([faiss_id], dtype=np.int64))
+            self.faiss_index.add_with_ids(self._faiss_single_vector(vector), np.asarray([faiss_id], dtype=np.int64))
             self.id_to_faiss_idx[knowledge.knowledge_id] = faiss_id
             self.faiss_idx_to_id[faiss_id] = knowledge.knowledge_id
             self.updated_at = now
@@ -266,7 +267,7 @@ class SemanticMemory:
             if knowledge_id in self.id_to_faiss_idx:
                 faiss_id = self.id_to_faiss_idx.pop(knowledge_id)
                 self.faiss_idx_to_id.pop(faiss_id, None)
-                self.faiss_index.remove_ids(np.array([faiss_id], dtype=np.int64))
+                self.faiss_index.remove_ids(np.asarray([faiss_id], dtype=np.int64))
             self.updated_at = time.time()
             self._save_faiss_to_disk()
             return True
@@ -276,7 +277,11 @@ class SemanticMemory:
             rows = [dict(row) for row in conn.execute("SELECT * FROM knowledge ORDER BY updated_at DESC LIMIT ?", (max(1, int(limit)),)).fetchall()]
         return [Knowledge.from_dict(row) for row in rows]
 
-    def semantic_search(self, query: str, similarity_threshold: float = 0.70, max_candidate_cap: int = 20) -> List[Knowledge]:
+    def semantic_search(self, query: str, similarity_threshold: float = 0.70, max_candidate_cap: int = 20,
+                        top_k: Optional[int] = None) -> List[Knowledge]:
+        """Retrieve semantically similar knowledge using the single FAISS index."""
+        if top_k is not None:
+            max_candidate_cap = max(1, int(top_k))
         with self._lock:
             if self.faiss_index.ntotal == 0:
                 return []
@@ -295,16 +300,18 @@ class SemanticMemory:
             return active_facts
 
     def hybrid_search(self, query: str, limit: int = 5, similarity_threshold: float = 0.70, lexical_fallback_limit: int = 5) -> List[Knowledge]:
-        semantic_results = self.semantic_search(query, similarity_threshold=similarity_threshold)
-        if len(semantic_results) >= 3:
-            return semantic_results
+        semantic_results = self.semantic_search(query, similarity_threshold=similarity_threshold, top_k=limit)
+        if len(semantic_results) >= limit:
+            return semantic_results[:limit]
         seen_ids = {item.knowledge_id for item in semantic_results}
         lexical_results: List[Knowledge] = []
         for item in self.search(query, limit=lexical_fallback_limit):
             if item.knowledge_id not in seen_ids:
                 lexical_results.append(item)
                 seen_ids.add(item.knowledge_id)
-        return semantic_results + lexical_results
+            if len(semantic_results) + len(lexical_results) >= limit:
+                break
+        return (semantic_results + lexical_results)[:limit]
 
     def get_trimmed_context(self, query: str, subject: Optional[str] = None, similarity_threshold: float = 0.70) -> str:
         facts = self.semantic_search(query, similarity_threshold=similarity_threshold)
@@ -343,6 +350,30 @@ class SemanticMemory:
         with self._lock, self._get_db_connection() as conn:
             return [Knowledge.from_dict(dict(row)) for row in conn.execute(query, params).fetchall()]
 
+    def find_by_subject(self, subject: str, limit: Optional[int] = None) -> List[Knowledge]:
+        results = self.find(subject=subject)
+        return results if limit is None else results[:max(0, int(limit))]
+
+    def find_by_predicate(self, predicate: str, limit: Optional[int] = None) -> List[Knowledge]:
+        predicate = self._normalize(predicate)
+        with self._lock, self._get_db_connection() as conn:
+            rows = conn.execute("SELECT * FROM knowledge WHERE predicate = ? ORDER BY updated_at DESC", (predicate,)).fetchall()
+        results = [Knowledge.from_dict(dict(row)) for row in rows]
+        return results if limit is None else results[:max(0, int(limit))]
+
+    def find_by_tag(self, tag: str, limit: Optional[int] = None) -> List[Knowledge]:
+        target = self._normalize(tag)
+        with self._lock, self._get_db_connection() as conn:
+            rows = conn.execute("SELECT * FROM knowledge ORDER BY updated_at DESC").fetchall()
+        results = []
+        for row in rows:
+            item = Knowledge.from_dict(dict(row))
+            if any(self._normalize(t) == target for t in item.tags):
+                results.append(item)
+                if limit is not None and len(results) >= max(0, int(limit)):
+                    break
+        return results
+
     def search(self, query: str, limit: int = 20) -> List[Knowledge]:
         query_norm = f"%{self._normalize(query)}%"
         sql = """
@@ -359,6 +390,29 @@ class SemanticMemory:
             row = conn.execute("SELECT * FROM knowledge WHERE knowledge_id = ?", (knowledge_id,)).fetchone()
             return Knowledge.from_dict(dict(row)) if row else None
 
+    def update_confidence(self, knowledge_id: str, confidence: float) -> Optional[Knowledge]:
+        with self._lock:
+            item = self.get(knowledge_id)
+            if item is None:
+                return None
+            item.confidence = self._clamp(confidence)
+            item.updated_at = time.time()
+            self._save_knowledge_to_db(item, faiss_id=self.id_to_faiss_idx.get(knowledge_id))
+            self.updated_at = item.updated_at
+            return item
+
+    def reinforce(self, knowledge_id: str, confidence_delta: float = 0.1) -> Optional[Knowledge]:
+        item = self.get(knowledge_id)
+        if item is None:
+            return None
+        return self.update_confidence(knowledge_id, item.confidence + float(confidence_delta))
+
+    def weaken(self, knowledge_id: str, confidence_delta: float = 0.1) -> Optional[Knowledge]:
+        item = self.get(knowledge_id)
+        if item is None:
+            return None
+        return self.update_confidence(knowledge_id, item.confidence - float(confidence_delta))
+
     def snapshot(self, limit: Optional[int] = None) -> Dict[str, Any]:
         with self._lock:
             query = "SELECT * FROM knowledge ORDER BY updated_at ASC"
@@ -368,11 +422,9 @@ class SemanticMemory:
                 params.append(max(0, int(limit)))
             with self._get_db_connection() as conn:
                 rows = conn.execute(query, params).fetchall()
-            return {
-                "version": self.VERSION, "count": self.count, "max_knowledge": self.max_knowledge,
-                "created_at": self.created_at, "updated_at": self.updated_at,
-                "knowledge": [Knowledge.from_dict(dict(row)).to_dict() for row in rows],
-            }
+            return {"version": self.VERSION, "count": self.count, "max_knowledge": self.max_knowledge,
+                    "created_at": self.created_at, "updated_at": self.updated_at,
+                    "knowledge": [Knowledge.from_dict(dict(row)).to_dict() for row in rows]}
 
     def restore(self, snapshot: Dict[str, Any]) -> None:
         if not isinstance(snapshot, dict):
