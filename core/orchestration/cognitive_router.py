@@ -27,7 +27,8 @@ class CognitiveDecision:
 class CognitiveRouter:
     """Evidence-driven route authority. It consumes Cognition output only."""
 
-    VERSION = "0.6.0"
+    VERSION = "0.7.0"
+    EXECUTABLE_MODES = frozenset({"goal", "tool", "hybrid", "llm"})
 
     def __init__(self, minimum_confidence: Optional[float] = None) -> None:
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -68,12 +69,12 @@ class CognitiveRouter:
         perception: Optional[Mapping[str, Any]] = None,
         explicit_intent: Optional[Mapping[str, Any]] = None,
     ) -> CognitiveDecision:
-        """Choose execution from the canonical Cognition contract.
+        """Choose an execution mode from canonical Cognition data.
 
-        ``cognition_input`` is the authoritative runtime path. The older
-        perception/explicit_intent arguments remain compatibility inputs for
-        non-blueprint callers and are not used when canonical Cognition data
-        is supplied.
+        The router only returns modes that the authoritative Brain runtime can
+        execute. Stored experiences alone are evidence, not a native answer
+        capability, so they must not manufacture a ``known`` route that the
+        Brain cannot execute without an LLM.
         """
         if cognition_input is not None:
             c = dict(cognition_input)
@@ -133,15 +134,13 @@ class CognitiveRouter:
         }
         usable = bool(intent) and confidence >= self.minimum_confidence
         if usable and intent.get("requires_confirmation") is True:
-            return CognitiveDecision("clarify", confidence, "Cognition requires confirmation before action.", evidence, False)
+            return CognitiveDecision("llm", confidence, "Cognition requires confirmation; Brain must use the language cognition path to clarify before action.", evidence, True)
         if usable and perceived_goal:
             return CognitiveDecision("goal", confidence, "Cognition identified an explicit user goal.", evidence, False)
         if usable and requested_mode == "hybrid":
             if skill_count and intent.get("skill"):
                 return CognitiveDecision("hybrid", confidence, "Cognition selected hybrid execution with an available native capability.", evidence, True)
-            return CognitiveDecision("llm", confidence, "Hybrid was requested but no usable native capability is available; using LLM fallback cognition.", evidence, True)
+            return CognitiveDecision("llm", confidence, "Hybrid was requested but no usable native capability is available; using LLM cognition.", evidence, True)
         if usable and skill_count:
             return CognitiveDecision("tool", confidence, "Cognition identified a usable organism capability.", evidence, False)
-        if usable and (knowledge_count > 0 or memory_count > 0):
-            return CognitiveDecision("known", confidence, "Cognition has sufficient stored organism evidence for a native answer.", evidence, False)
-        return CognitiveDecision("llm", confidence, "Cognition has no sufficiently confident deterministic route; using LLM fallback cognition.", evidence, True)
+        return CognitiveDecision("llm", confidence, "Cognition requires language cognition for this turn; no executable native capability was selected.", evidence, True)

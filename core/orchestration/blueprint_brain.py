@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any, Dict, Mapping, Optional
 
 from ..contracts import validate_input, validate_output
+from ..contracts.validator import begin_validation_trace, get_validation_trace
 from ..cognition.semantic_understanding import SemanticUnderstanding
 from .brain import Brain
 
@@ -17,7 +19,8 @@ class BlueprintBrain(Brain):
     boundary. There is no proxy wrapper around this runtime organ.
     """
 
-    VERSION = "1.3.0"
+    VERSION = "1.4.0"
+    _SUPPORTED_ROUTES = frozenset({"goal", "tool", "hybrid", "llm"})
 
     _SEMANTIC_FALLBACK_PROMPT = (
         "You are JARVIS semantic understanding fallback. Return ONLY JSON. "
@@ -46,6 +49,8 @@ class BlueprintBrain(Brain):
         self.last_memory_output = None
         self.last_self_evaluation_input = None
         self.last_self_evaluation_output = None
+        self.last_runtime_contract_trace: list[dict[str, Any]] = []
+        self.last_route_authority: Dict[str, Any] = {}
         self._configure_semantic_fallback()
 
     def _configure_semantic_fallback(self) -> None:
@@ -57,10 +62,11 @@ class BlueprintBrain(Brain):
             return
 
         def fallback(request: Dict[str, Any]) -> Mapping[str, Any]:
+            budget_tokens = getattr(self.llm, "_budget_semantic_tokens", 256)
             raw = self.llm.generate_response(
                 system_prompt=self._SEMANTIC_FALLBACK_PROMPT,
                 user_input=str(request.get("text", "")),
-                max_tokens=512,
+                max_tokens=budget_tokens,
                 temperature=0.1,
             )
             text = re.sub(r"^```(?:json)?\s*|\s*```$", "", str(raw).strip(), flags=re.I | re.S).strip()
@@ -96,43 +102,51 @@ class BlueprintBrain(Brain):
         identity_profile: Optional[Dict[str, Any]] = None,
         source: str = "cli",
     ) -> str:
-        """Run one normal Brain turn and enqueue its structured experience.
+        """Run one real turn and capture the validator's live boundary trace."""
+        begin_validation_trace()
+        if self.llm is not None:
+            begin_budget = getattr(self.llm, "begin_turn_budget", None)
+            if callable(begin_budget):
+                begin_budget()
+        try:
+            response = super().think_and_respond(
+                user_input=user_input,
+                identity_profile=identity_profile,
+                source=source,
+            )
 
-        The base Brain owns response generation. This runtime subclass adds
-        the missing architectural hand-off: every completed turn becomes one
-        structured Experience/Learning job after the response is produced.
-        Semantic interpretation still happens only inside SemanticUnderstanding.
-        """
-        response = super().think_and_respond(
-            user_input=user_input,
-            identity_profile=identity_profile,
-            source=source,
-        )
+            semantic = dict((self.last_perception or {}).get("semantic_understanding") or {})
+            cognition = dict(getattr(self, "last_cognition_input", None) or {})
+            decision = dict(self.last_brain_decision or {})
+            action_response = getattr(self, "last_action_response", None)
 
-        semantic = dict((self.last_perception or {}).get("semantic_understanding") or {})
-        cognition = dict(getattr(self, "last_cognition_input", None) or {})
-        decision = dict(self.last_brain_decision or {})
-        action_response = getattr(self, "last_action_response", None)
-
-        self._enqueue_learning(
-            event_type="USER_CHAT",
-            context={
-                "user_input": str(user_input or ""),
-                "semantic": semantic,
-                "cognition": cognition,
-            },
-            action={
-                "decision": decision,
-                "action_response": action_response if isinstance(action_response, dict) else {},
-            },
-            outcome={
-                "response": str(response),
-                "action": action_response if isinstance(action_response, dict) else {},
-            },
-            source=source,
-            importance=0.5,
-        )
-        return response
+            self._enqueue_learning(
+                event_type="USER_CHAT",
+                context={
+                    "user_input": str(user_input or ""),
+                    "semantic": semantic,
+                    "cognition": cognition,
+                },
+                action={
+                    "decision": decision,
+                    "action_response": action_response if isinstance(action_response, dict) else {},
+                },
+                outcome={
+                    "response": str(response),
+                    "action": action_response if isinstance(action_response, dict) else {},
+                },
+                source=source,
+                importance=0.5,
+            )
+            return response
+        finally:
+            self.last_runtime_contract_trace = get_validation_trace()
+            if self.last_turn_trace is not None:
+                self.last_turn_trace["contract_validation_trace"] = list(self.last_runtime_contract_trace)
+                if self.llm is not None:
+                    budget_status = getattr(self.llm, "budget_status", None)
+                    if callable(budget_status):
+                        self.last_turn_trace["llm_budget"] = budget_status()
 
     def _perceive(self, user_input: str) -> Dict[str, Any]:
         perception_input = validate_input("perception", {"raw_input": str(user_input)})
@@ -226,8 +240,11 @@ class BlueprintBrain(Brain):
         cognition_input = self._build_cognition_input(user_input, perception)
         router_input = validate_input("cognitive_router", {"cognitive_context": cognition_input})
         decision = self.cognitive_router.decide(user_input=user_input, cognition_input=router_input["cognitive_context"])
+        requested_route = str(decision.mode).lower()
+        if requested_route not in self._SUPPORTED_ROUTES:
+            raise RuntimeError(f"Router selected unsupported execution mode: {requested_route}")
         router_output = validate_output("cognitive_router", {
-            "route": decision.mode,
+            "route": requested_route,
             "confidence": decision.confidence,
             "fallback_allowed": decision.llm_required,
             "evidence": list((decision.evidence or {}).items()),
@@ -246,6 +263,12 @@ class BlueprintBrain(Brain):
             "cognitive_router.output": router_output,
             "brain.input": self.last_brain_input,
         })
+        self.last_route_authority = {
+            "router_route": requested_route,
+            "brain_input_route": router_output["route"],
+            "fallback_allowed": router_output["fallback_allowed"],
+            "status": "PASS",
+        }
         return payload
 
     def _enqueue_learning(self, event_type: str, context: Dict[str, Any], action: Dict[str, Any], outcome: Dict[str, Any], source: Optional[str], importance: float) -> None:

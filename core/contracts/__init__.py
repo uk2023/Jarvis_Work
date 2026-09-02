@@ -5,7 +5,14 @@ it does not implement cognition or business logic.
 """
 
 from .schemas import CONTRACTS, ContractError, LayerPayload
-from .validator import validate, validate_input, validate_output, validate_transition
+from .validator import (
+    validate,
+    validate_input,
+    validate_output,
+    validate_transition,
+    begin_validation_trace,
+    get_validation_trace,
+)
 
 __all__ = [
     "CONTRACTS",
@@ -15,4 +22,6 @@ __all__ = [
     "validate_input",
     "validate_output",
     "validate_transition",
+    "begin_validation_trace",
+    "get_validation_trace",
 ]

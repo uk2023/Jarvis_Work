@@ -71,6 +71,17 @@ def test_full_runtime_contracts() -> None:
     test_full_runtime_contract_chain()
 
 
+def test_runtime_authority_and_budget() -> None:
+    from .test_runtime_authority_budget import (
+        test_router_does_not_emit_unexecutable_known_route,
+        test_validator_records_real_runtime_events,
+        test_llm_budget_is_hard_per_turn,
+    )
+    test_router_does_not_emit_unexecutable_known_route()
+    test_validator_records_real_runtime_events()
+    test_llm_budget_is_hard_per_turn()
+
+
 def main() -> None:
     test_registry_is_complete()
     test_representative_pipeline()
@@ -78,6 +89,7 @@ def main() -> None:
     test_runtime_integration()
     test_p2_p3_runtime()
     test_full_runtime_contracts()
+    test_runtime_authority_and_budget()
     print(f"PASS: {len(CONTRACTS)} JARVIS input/output contracts validated")
     print("PASS: runtime perception -> semantic_understanding -> cognition integration validated")
     print("PASS: invalid payload rejection validated")
@@ -85,6 +97,7 @@ def main() -> None:
     print("PASS: P2 Cognition Router consumes canonical cognition.input")
     print("PASS: P3 normal think_and_respond reaches AsyncLearningQueue")
     print("PASS: full runtime Perception -> Memory contract chain validated")
+    print("PASS: Router authority + LLM budget + live validation trace validated")
 
 
 if __name__ == "__main__":
