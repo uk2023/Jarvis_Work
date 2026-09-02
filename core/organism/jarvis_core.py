@@ -132,7 +132,7 @@ class JarvisCore:
         ) else {}
         organ_status = self.get_organ_status()
         return {
-            "organism": "JARVIS",
+            "organism": self.identity.get_core().get("name", "") if self.identity else "",
             "version": self.VERSION,
             "running": self.running,
             "uptime_seconds": max(0.0, time.time() - self.started_at),
@@ -143,8 +143,6 @@ class JarvisCore:
                 "code_present": True,
                 "integrated": bool(organ_status),
                 "runtime_active": self.running,
-                # Runtime verification is an evidence claim and cannot be inferred
-                # merely from object attachment or construction.
                 "runtime_verified": False,
             },
             "state": self.state.snapshot() if self.state and callable(
