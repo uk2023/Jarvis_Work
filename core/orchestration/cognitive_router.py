@@ -27,8 +27,9 @@ class CognitiveDecision:
 class CognitiveRouter:
     """Evidence-driven route authority. It consumes Cognition output only."""
 
-    VERSION = "0.7.0"
+    VERSION = "0.7.1"
     EXECUTABLE_MODES = frozenset({"goal", "tool", "hybrid", "llm"})
+    LEGACY_NON_EXECUTABLE_MODES = frozenset({"known", "native"})
 
     def __init__(self, minimum_confidence: Optional[float] = None) -> None:
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -69,12 +70,14 @@ class CognitiveRouter:
         perception: Optional[Mapping[str, Any]] = None,
         explicit_intent: Optional[Mapping[str, Any]] = None,
     ) -> CognitiveDecision:
-        """Choose an execution mode from canonical Cognition data.
+        """Choose an executable mode from canonical Cognition data.
 
-        The router only returns modes that the authoritative Brain runtime can
-        execute. Stored experiences alone are evidence, not a native answer
-        capability, so they must not manufacture a ``known`` route that the
-        Brain cannot execute without an LLM.
+        The router is the route authority. Only modes in EXECUTABLE_MODES may
+        cross the Router -> Brain boundary. Legacy labels such as ``known``
+        and ``native`` are not execution modes and therefore cannot authorize
+        an LLM or native action directly. A legacy ``known`` request is
+        normalized to the language-cognition route rather than leaking an
+        unexecutable route into Brain.
         """
         if cognition_input is not None:
             c = dict(cognition_input)
@@ -143,4 +146,6 @@ class CognitiveRouter:
             return CognitiveDecision("llm", confidence, "Hybrid was requested but no usable native capability is available; using LLM cognition.", evidence, True)
         if usable and skill_count:
             return CognitiveDecision("tool", confidence, "Cognition identified a usable organism capability.", evidence, False)
+        if usable and requested_mode in self.LEGACY_NON_EXECUTABLE_MODES:
+            return CognitiveDecision("llm", confidence, "Legacy route label is not an executable Brain mode; normalized to language cognition.", evidence, True)
         return CognitiveDecision("llm", confidence, "Cognition requires language cognition for this turn; no executable native capability was selected.", evidence, True)
