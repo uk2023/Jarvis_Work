@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 BRAIN = ROOT / "core" / "orchestration" / "brain.py"
+BOUNDARY = Path(__file__).resolve().parent / "learning_boundary.py"
 
 
 def test_brain_has_no_runtime_legacy_fact_extraction_call() -> None:
@@ -15,10 +16,13 @@ def test_brain_has_no_runtime_legacy_fact_extraction_call() -> None:
 
 
 def test_semantic_boundary_owns_learning_intake() -> None:
-    boundary = Path(__file__).resolve().parent / "learning_boundary.py"
-    source = boundary.read_text(encoding="utf-8")
+    source = BOUNDARY.read_text(encoding="utf-8")
     assert "class SemanticLearningBoundary" in source
-    assert "LearningCoordinator" in source
+    # LearningCoordinator is injected at the boundary rather than imported
+    # here, keeping the semantic organ decoupled from a concrete coordinator.
+    assert "self.learning" in source
+    assert "self.learning.learn" in source
+    assert "def learn(" in source
     print("PASS: Semantic Understanding owns the fallback -> learning boundary")
 
 
