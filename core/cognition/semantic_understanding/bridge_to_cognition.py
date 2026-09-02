@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from .context_model import ContextModel
 from .entity_store import EntityStore
-from .parser import SemanticParser
+from .engine import SemanticUnderstandingEngine
 from .relation_store import RelationStore
 from .semantic_retriever import SemanticRetriever
 
@@ -21,13 +21,13 @@ class SemanticUnderstanding:
 
     VERSION = "0.2.0"
 
-    def __init__(self, *, parser: Optional[SemanticParser] = None,
+    def __init__(self, *, parser: Optional[SemanticUnderstandingEngine] = None,
                  entity_store: Optional[EntityStore] = None,
                  relation_store: Optional[RelationStore] = None,
                  context_model: Optional[ContextModel] = None,
                  retriever: Optional[SemanticRetriever] = None,
                  semantic_memory: Optional[Any] = None) -> None:
-        self.parser = parser or SemanticParser()
+        self.parser = parser or SemanticUnderstandingEngine()
         self.entity_store = entity_store or EntityStore()
         self.relation_store = relation_store or RelationStore()
         self.context_model = context_model or ContextModel()
@@ -36,7 +36,7 @@ class SemanticUnderstanding:
     def understand(self, text: str, *, language: Optional[str] = None,
                    context: Optional[Dict[str, Any]] = None,
                    retrieve: bool = True, retrieval_limit: int = 8) -> Dict[str, Any]:
-        semantic = self.parser.parse(text, language=language)
+        semantic = self.parser.understand(text, context=context)
         entities = []
         for entity in semantic.get("entities", []):
             if not isinstance(entity, dict) or not entity.get("text"):

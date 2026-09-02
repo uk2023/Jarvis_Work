@@ -1,10 +1,12 @@
-"""Semantic Understanding substrate.
-
-Provides a dependency-light neuro-symbolic foundation between Perception and
-Cognition. It does not execute actions and does not write trusted long-term
-memory by itself.
-"""
+"""Semantic Understanding substrate for JARVIS Cognition."""
 
 from .bridge_to_cognition import SemanticUnderstanding
+from .engine import SemanticUnderstandingEngine, SemanticFact, SemanticEntity, SemanticEvent
 
-__all__ = ["SemanticUnderstanding"]
+__all__ = [
+    "SemanticUnderstanding",
+    "SemanticUnderstandingEngine",
+    "SemanticFact",
+    "SemanticEntity",
+    "SemanticEvent",
+]

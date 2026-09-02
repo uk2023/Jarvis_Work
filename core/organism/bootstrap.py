@@ -27,8 +27,8 @@ from ..autonomy.idle_loop import IdleLoop
 from ..skills.skill_registry import SkillRegistry
 from ..skills.skill_executor import SkillExecutor
 from ..skills.skill_learner import SkillLearner
-from ..cognition.semantic_understanding.bridge_to_cognition import SemanticUnderstanding
-from ..semantic_understanding.brain_adapter import SemanticBrainAdapter
+from ..cognition.semantic_understanding import SemanticUnderstanding
+from ..cognition.semantic_understanding.brain_adapter import SemanticBrainAdapter
 
 
 def create_jarvis(identity=None, personality=None, values=None,

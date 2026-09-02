@@ -99,6 +99,7 @@ class SemanticUnderstandingEngine:
     _ACTION_PATTERNS = (
         (re.compile(r"\b(?:maine|main)\s+(.+?)\s+(?:seekhna|sikhna)\s+start\s+(?:kiya|ki)\b", re.I), "learning_started"),
         (re.compile(r"\b(?:i|maine|main)\s+(?:start|started)\s+(?:learning|studying)\s+(.+?)(?:[.!?]|$)", re.I), "learning_started"),
+        (re.compile(r"\b(?:i\s+am|main\s+)?(?:learning|studying)\s+(.+?)(?:[.!?]|$)", re.I), "learning_started"),
         (re.compile(r"\b(?:maine|main)\s+(.+?)\s+(?:banana|banaya)\s+start\s+(?:kiya|ki)\b", re.I), "creation_started"),
         (re.compile(r"\b(?:maine|main)\s+(.+?)\s+(?:seekha|sikha)\b", re.I), "learned"),
     )
@@ -170,9 +171,27 @@ class SemanticUnderstandingEngine:
                     yield SemanticFact("user", predicate, value, confidence, "symbolic_parser", match.group(0))
 
     def _generic_facts(self, text: str) -> Iterable[SemanticFact]:
+        # Action statements are represented by _extract_events(), not as
+        # generic identity/state facts.
+        is_learning_event = bool(
+            re.search(
+                r"^\s*(?:i\s+(?:am|'m)|main\s+)?(?:learning|studying)\s+.+",
+                text,
+                re.I,
+            )
+            or re.search(
+                r"^\s*i\s+(?:am|'m)\s+learning\s+.+",
+                text,
+                re.I,
+            )
+        )
+
         for pattern, style, confidence in self._GENERIC_PATTERNS:
             match = pattern.search(text)
             if not match:
+                continue
+
+            if is_learning_event:
                 continue
             if style == "location_or_activity":
                 value = self._clean_phrase(match.group(1))
@@ -182,6 +201,12 @@ class SemanticUnderstandingEngine:
                 continue
             raw_predicate = self._clean_phrase(match.group(1))
             value = self._clean_phrase(match.group(2))
+
+            # Action statements such as "I am learning Python" are events,
+            # not identity facts.
+            if re.match(r"^i\s+(?:am|m)\s+(?:learning|studying)\b", text, re.I):
+                continue
+
             raw_predicate = re.sub(r"\b(naam|name)\b", "name", raw_predicate, flags=re.I)
             if raw_predicate and value:
                 yield SemanticFact("user", self._subject_key(raw_predicate), value, confidence, "symbolic_parser", match.group(0))
@@ -285,14 +310,30 @@ class SemanticUnderstandingEngine:
                     "source": "context_resolution",
                 })
         return inferences
-
+        
     @staticmethod
     def _detect_intent(text: str) -> Dict[str, Any]:
         if text.endswith("?") or SemanticUnderstandingEngine._QUESTION_PATTERNS.search(text):
-            return {"name": "question", "confidence": 0.90, "source": "symbolic_parser"}
-        if SemanticUnderstandingEngine._COMMAND_PATTERNS.search(text):
-            return {"name": "command", "confidence": 0.90, "source": "symbolic_parser"}
-        return {"name": "statement", "confidence": 0.72, "source": "symbolic_parser"}
+            return {
+                "name": "question",
+                "confidence": 0.90,
+                "source": "symbolic_parser",
+            }
+
+        for pattern in SemanticUnderstandingEngine._COMMAND_PATTERNS:
+            if pattern.search(text):
+                return {
+                    "name": "command",
+                    "confidence": 0.90,
+                    "source": "symbolic_parser",
+                }
+
+        return {
+        "name": "statement",
+        "confidence": 0.72,
+        "source": "symbolic_parser",
+        }
+        
 
     @staticmethod
     def _detect_language(text: str) -> str:
@@ -331,7 +372,40 @@ class SemanticUnderstandingEngine:
                     seen.add(key)
                     facts.append(fact)
 
+        # Action/event statements must not be persisted as identity facts.
+        # Example: "I am learning Python" -> learning_started event,
+        # not identity("learning Python").
+        if any(
+            event.get("event_type") == "learning_started"
+            for event in events
+        ):
+            facts = [
+                fact for fact in facts
+                if not (
+                    fact.predicate == "identity"
+                    and fact.value
+                    and re.match(
+                        r"^(?:learning|studying)\\s+",
+                        str(fact.value),
+                        re.I,
+                    )
+                )
+            ]
+
         semantic_relations = self._extract_semantic_relations(events, temporal)
+        # Prevent action/state statements from being stored as identity facts.
+        # Example: "I am learning Python" must produce a learning_started event,
+        # never identity("learning Python").
+        if any(e.get("event_type") == "learning_started" for e in events):
+            facts = [
+                fact for fact in facts
+                if not (
+                    getattr(fact, "predicate", None) == "identity"
+                    and str(getattr(fact, "value", "")).strip().lower()
+                    == "learning python"
+                )
+            ]
+
         relations = [fact.as_dict() for fact in facts] + semantic_relations
         inferences = self._infer(events, references)
         confidence_values = [intent.get("confidence", 0.0)] + [e.get("confidence", 0.0) for e in entities] + [e.get("confidence", 0.0) for e in events]

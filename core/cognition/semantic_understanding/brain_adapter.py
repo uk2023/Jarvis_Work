@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import MethodType
 from typing import Any, Optional
 
-from ..cognition.semantic_understanding.bridge_to_cognition import SemanticUnderstanding
+from .bridge_to_cognition import SemanticUnderstanding
 from .engine import SemanticUnderstandingEngine
 
 
