@@ -8,8 +8,8 @@ from core.learning.knowledge_builder import KnowledgeBuilder
 from core.learning.learning_coordinator import LearningCoordinator
 from core.learning.self_evaluator import SelfEvaluator
 
-from .knowledge_promotion import SemanticKnowledgePromotion
-from .learning_boundary import SemanticLearningBoundary
+from core.cognition.semantic_understanding.knowledge_promotion import SemanticKnowledgePromotion
+from core.cognition.semantic_understanding.learning_boundary import SemanticLearningBoundary
 
 
 class FakeKnowledge:

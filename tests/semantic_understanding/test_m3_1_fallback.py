@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .brain_adapter import SemanticBrainAdapter
-from .bridge_to_cognition import SemanticUnderstanding
+from core.cognition.semantic_understanding.brain_adapter import SemanticBrainAdapter
+from core.cognition.semantic_understanding.bridge_to_cognition import SemanticUnderstanding
 
 
 class FakeLLM:

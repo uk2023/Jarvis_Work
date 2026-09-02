@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .learning_boundary import LearnedSemanticRegistry, SemanticLearningBoundary
+from core.cognition.semantic_understanding.learning_boundary import LearnedSemanticRegistry, SemanticLearningBoundary
 
 
 def test_native_path_does_not_call_llm() -> None:

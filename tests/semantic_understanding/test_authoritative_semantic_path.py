@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 BRAIN = ROOT / "core" / "orchestration" / "brain.py"
-BOUNDARY = Path(__file__).resolve().parent / "learning_boundary.py"
+BOUNDARY = ROOT / "core" / "cognition" / "semantic_understanding" / "learning_boundary.py"
 
 
 def test_brain_has_no_runtime_legacy_fact_extraction_call() -> None:
