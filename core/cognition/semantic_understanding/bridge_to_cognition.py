@@ -15,7 +15,7 @@ from .semantic_retriever import SemanticRetriever
 class SemanticUnderstanding:
     """Neuro-symbolic understanding facade at the Cognition boundary."""
 
-    VERSION = "0.3.0"
+    VERSION = "0.4.0"
 
     def __init__(self, *, parser: Optional[SemanticUnderstandingEngine] = None,
                  entity_store: Optional[EntityStore] = None,
@@ -36,6 +36,11 @@ class SemanticUnderstanding:
                    retrieve: bool = True, retrieval_limit: int = 8) -> Dict[str, Any]:
         native_semantic = self.parser.understand(text, context=context)
         resolution = self.learning_boundary.resolve(text, native_semantic, context=context)
+        learning_intake = None
+        candidate = resolution.get("candidate")
+        if candidate is not None and self.learning_boundary.learning is not None:
+            learning_intake = self.learning_boundary.learn(candidate["id"], auto_accept=False)
+
         semantic = dict(resolution.get("semantic") or native_semantic)
         provenance = semantic.get("provenance") if isinstance(semantic.get("provenance"), dict) else {}
         semantic["provenance"] = {**provenance, "semantic_source": resolution.get("source", "native")}
@@ -66,6 +71,7 @@ class SemanticUnderstanding:
                 "source": resolution.get("source", "native"),
                 "fallback_used": bool(resolution.get("fallback_used", False)),
                 "candidate": resolution.get("candidate"),
+                "intake": learning_intake,
             },
         }
 
