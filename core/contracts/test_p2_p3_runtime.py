@@ -10,7 +10,6 @@ import time
 from typing import Any, Mapping, Optional
 
 from ..cognition.semantic_understanding import SemanticUnderstanding
-from ..cognition.semantic_understanding.brain_adapter import SemanticBrainAdapter
 from ..orchestration.blueprint_brain import BlueprintBrain
 from ..orchestration.cognitive_router import CognitiveDecision
 from ..orchestration.perception import PerceptionEngine, PerceptionResult
@@ -69,16 +68,19 @@ class StubLearning:
 def test_p2_router_consumes_cognition_contract() -> None:
     router = CapturingRouter()
     perception = PerceptionEngine(providers=[StubPerceptionProvider()])
-    brain = BlueprintBrain(perception_engine=perception, cognitive_router=router)
-    adapter = SemanticBrainAdapter(semantic=SemanticUnderstanding(semantic_memory=None))
-    adapter.attach(brain)
+    semantic = SemanticUnderstanding(semantic_memory=None)
+    brain = BlueprintBrain(
+        perception_engine=perception,
+        cognitive_router=router,
+        semantic_understanding=semantic,
+    )
 
     perceived = brain._perceive("I like Python")
     brain._route_cognition("I like Python", perceived)
 
     assert router.cognition_input is not None
     assert "semantic" in router.cognition_input
-    assert router.cognition_input["semantic"] == adapter.last_cognition_input["semantic"]
+    assert router.cognition_input["semantic"] == brain.last_contracts["cognition.input"]["semantic"]
     assert "memory" in router.cognition_input
     assert "perception_source" not in router.cognition_input
 
@@ -94,9 +96,8 @@ def test_p3_normal_turn_reaches_async_learning_queue() -> None:
         llm_bridge=StubLLM(),
         experience_engine=experience,
         learning_coordinator=learning,
+        semantic_understanding=SemanticUnderstanding(semantic_memory=None),
     )
-    adapter = SemanticBrainAdapter(semantic=SemanticUnderstanding(semantic_memory=None))
-    adapter.attach(brain)
 
     brain.start()
     try:
