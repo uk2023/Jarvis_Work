@@ -2,6 +2,7 @@
 
 from .bridge_to_cognition import SemanticUnderstanding
 from .engine import SemanticUnderstandingEngine, SemanticFact, SemanticEntity, SemanticEvent
+from .learning_boundary import LearnedSemanticRegistry, SemanticLearningBoundary, SemanticLearningCandidate
 
 __all__ = [
     "SemanticUnderstanding",
@@ -9,4 +10,7 @@ __all__ = [
     "SemanticFact",
     "SemanticEntity",
     "SemanticEvent",
+    "SemanticLearningBoundary",
+    "SemanticLearningCandidate",
+    "LearnedSemanticRegistry",
 ]
