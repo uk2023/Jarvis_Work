@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 import time
 
 from core.identity import Identity, Values, Personality
+from .organ_role_registry import OrganRoleRegistry
 
 
 class JarvisCore:
@@ -13,7 +14,7 @@ class JarvisCore:
 
     def __init__(self, identity=None, personality=None, values=None,
                  state=None, event_bus=None, lifecycle=None, heartbeat=None,
-                 organs=None):
+                 organs=None, organ_roles=None):
         self.identity = identity if identity is not None else Identity()
         self.personality = personality if personality is not None else Personality()
         self.values = values if values is not None else Values()
@@ -24,6 +25,7 @@ class JarvisCore:
         self.lifecycle = lifecycle
         self.heartbeat = heartbeat
         self.organs: Dict[str, Any] = dict(organs or {})
+        self.organ_roles = organ_roles if organ_roles is not None else OrganRoleRegistry()
         self.started_at = time.time()
         self.last_event = None
         self.running = False
@@ -104,10 +106,14 @@ class JarvisCore:
                 print(f"[JarvisCore EventBus Error] {event_name}: {exc}")
 
     def get_organ_status(self) -> Dict[str, Dict[str, Any]]:
-        """Report presence and optional self-reported runtime state of organs."""
+        """Report presence, declared role and optional self-reported runtime state."""
         result: Dict[str, Dict[str, Any]] = {}
         for name, organ in self.organs.items():
-            entry: Dict[str, Any] = {"type": type(organ).__name__, "attached": True}
+            entry: Dict[str, Any] = {
+                "type": type(organ).__name__,
+                "attached": True,
+                "role": self.organ_roles.role_for(name),
+            }
             status_method = getattr(organ, "status", None)
             if callable(status_method):
                 try:
