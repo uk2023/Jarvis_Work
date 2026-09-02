@@ -6,6 +6,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Mapping, Optional, Protocol
 
+from ..contracts import validate_output
+
 
 @dataclass(frozen=True)
 class PerceptionResult:
@@ -26,6 +28,33 @@ class PerceptionResult:
 
     def as_dict(self) -> Dict[str, Any]:
         return self.__dict__.copy()
+
+    def as_contract_payload(self) -> Dict[str, Any]:
+        """Return the canonical Perception output contract."""
+        entities = self.entities
+        if isinstance(entities, dict):
+            entities = [entities] if entities else []
+        elif not isinstance(entities, list):
+            entities = []
+
+        return validate_output(
+            "perception",
+            {
+                "normalized_input": self.normalized_text,
+                "language": self.language or "unknown",
+                "confidence": float(self.confidence),
+                "basic_intent": self.intent,
+                "entities": entities,
+                "metadata": {
+                    "source": self.source,
+                    "uncertainty": float(self.uncertainty),
+                    "goal": self.goal,
+                    "requested_capability": self.requested_capability,
+                    "speech_act": self.speech_act,
+                    "reason": self.reason,
+                },
+            },
+        )
 
 
 class PerceptionProvider(Protocol):
@@ -92,12 +121,13 @@ class LLMPerceptionProvider:
 
 class PerceptionEngine:
     """Provider-agnostic perception organ with explicit provider ordering."""
-    VERSION = "0.2.0"
+    VERSION = "0.3.0"
 
     def __init__(self, providers=None, state=None):
         self.providers = list(providers or [])
         self.state = state
         self.last_result: Optional[PerceptionResult] = None
+        self.last_contract: Optional[Dict[str, Any]] = None
 
     def add_provider(self, provider: PerceptionProvider) -> None:
         self.providers.append(provider)
@@ -108,6 +138,7 @@ class PerceptionEngine:
                 result = provider.perceive(user_input, context=context)
                 if not isinstance(result, PerceptionResult):
                     continue
+                self.last_contract = result.as_contract_payload()
                 self.last_result = result
                 self._publish_state(result)
                 return result
@@ -117,9 +148,11 @@ class PerceptionEngine:
         result = PerceptionResult(
             user_input=user_input,
             normalized_text=user_input,
+            language="unknown",
             source="none",
             reason="No perception provider produced a result.",
         )
+        self.last_contract = result.as_contract_payload()
         self.last_result = result
         self._publish_state(result)
         return result
