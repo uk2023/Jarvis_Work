@@ -327,5 +327,5 @@ class BlueprintBrain(Brain):
         self.last_self_evaluation_input = self_eval_input
         self.last_self_evaluation_output = validate_output("self_evaluation", {"evaluation": dict(result or {})})
         self.last_contracts["self_evaluation.input"] = self_eval_input
-        self.last_contracts["self_evaluation.output"] = self_eval_output
+        self.last_contracts["self_evaluation.output"] = self.last_self_evaluation_output
         return result
