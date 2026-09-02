@@ -81,7 +81,9 @@ def test_reject_path_never_promotes_or_persists() -> None:
     candidate_id = make_candidate(boundary, "reject this unknown pattern")
     result = SemanticKnowledgePromotion(boundary, learning).reject(candidate_id, reason="evaluation rejected")
     assert result["evaluation"]["status"] == "REJECTED"
-    assert result["knowledge"]["status"] == "REJECTED"
+    # Rejection is terminal before knowledge creation; there must be no
+    # persisted knowledge object to promote or inspect as ACCEPTED/REJECTED.
+    assert result["knowledge"] is None
     assert result["candidate"]["status"] == "REJECTED"
     assert result["promoted_capability"] is None
     assert memory.saved == []
