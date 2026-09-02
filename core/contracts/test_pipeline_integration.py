@@ -49,8 +49,8 @@ def test_runtime_pipeline_contracts() -> None:
 
     SemanticBrainAdapter was an integration proxy and is intentionally gone:
     BlueprintBrain is now the live owner of the Perception -> Semantic
-    Understanding boundary, so this test must inspect the same runtime
-    contract records rather than recreating the removed adapter.
+    Understanding boundary, so this test inspects the same runtime contract
+    records rather than recreating the removed adapter.
     """
     brain = _make_brain()
     result = brain._perceive("I like Python")
@@ -64,11 +64,11 @@ def test_runtime_pipeline_contracts() -> None:
     semantic_contract = validate_output(
         "semantic_understanding", brain.last_contracts["semantic_understanding.output"]
     )
-    cognition_input = brain._build_cognition_input("I like Python", result)
-    cognition_input = validate_input("cognition", cognition_input)
+    cognition_input = validate_input(
+        "cognition", brain._build_cognition_input("I like Python", result)
+    )
 
     assert result["semantic_understanding"] == semantic_contract
-    assert result["cognition_input"] if "cognition_input" in result else True
     assert brain.last_contracts["cognition.input"] == cognition_input
     assert semantic_input["perception"] == perception_contract
     assert semantic_contract["normalized_text"] == "I like Python"
