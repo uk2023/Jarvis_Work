@@ -130,6 +130,7 @@ class JarvisCore:
         identity = self.identity.snapshot() if self.identity and callable(
             getattr(self.identity, "snapshot", None)
         ) else {}
+        organ_status = self.get_organ_status()
         return {
             "organism": "JARVIS",
             "version": self.VERSION,
@@ -137,7 +138,15 @@ class JarvisCore:
             "uptime_seconds": max(0.0, time.time() - self.started_at),
             "last_event": self.last_event,
             "identity": identity,
-            "organs": self.get_organ_status(),
+            "organs": organ_status,
+            "observability": {
+                "code_present": True,
+                "integrated": bool(organ_status),
+                "runtime_active": self.running,
+                # Runtime verification is an evidence claim and cannot be inferred
+                # merely from object attachment or construction.
+                "runtime_verified": False,
+            },
             "state": self.state.snapshot() if self.state and callable(
                 getattr(self.state, "snapshot", None)
             ) else {},
