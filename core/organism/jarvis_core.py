@@ -7,7 +7,7 @@ from core.identity import Identity, Values, Personality
 
 
 class JarvisCore:
-    """Central organism coordinator."""
+    """Central organism coordinator and observable organism boundary."""
 
     VERSION = "0.2.0"
 
@@ -104,45 +104,41 @@ class JarvisCore:
                 print(f"[JarvisCore EventBus Error] {event_name}: {exc}")
 
     def get_organ_status(self) -> Dict[str, Dict[str, Any]]:
-        return {name: {"type": type(organ).__name__, "attached": True}
-                for name, organ in self.organs.items()}
+        """Report presence and optional self-reported runtime state of organs."""
+        result: Dict[str, Dict[str, Any]] = {}
+        for name, organ in self.organs.items():
+            entry: Dict[str, Any] = {"type": type(organ).__name__, "attached": True}
+            status_method = getattr(organ, "status", None)
+            if callable(status_method):
+                try:
+                    status = status_method()
+                    if isinstance(status, dict):
+                        entry["status"] = status
+                except Exception as exc:
+                    entry["status_error"] = str(exc)
+            result[name] = entry
+        return result
+
+    def get_status(self) -> Dict[str, Any]:
+        """Return an evidence-oriented organism snapshot without claiming health."""
+        identity = self.identity.snapshot() if self.identity and callable(
+            getattr(self.identity, "snapshot", None)
+        ) else {}
+        return {
+            "organism": "JARVIS",
+            "version": self.VERSION,
+            "running": self.running,
+            "uptime_seconds": max(0.0, time.time() - self.started_at),
+            "last_event": self.last_event,
+            "identity": identity,
+            "organs": self.get_organ_status(),
+            "state": self.state.snapshot() if self.state and callable(
+                getattr(self.state, "snapshot", None)
+            ) else {},
+        }
 
     def snapshot(self) -> Dict[str, Any]:
-        state_snapshot = {}
-        if self.state is not None:
-            snapshot_method = getattr(self.state, "snapshot", None)
-            if callable(snapshot_method):
-                try:
-                    state_snapshot = snapshot_method()
-                except Exception as exc:
-                    state_snapshot = {"error": str(exc)}
-
-        identity_snapshot = {}
-        if self.identity is not None:
-            snapshot_method = getattr(self.identity, "snapshot", None)
-            if callable(snapshot_method):
-                try:
-                    identity_snapshot = snapshot_method()
-                except Exception:
-                    identity_snapshot = {}
-
-        return {
-            "version": self.VERSION,
-            "running": self.running,
-            "started_at": self.started_at,
-            "last_event": self.last_event,
-            "identity": identity_snapshot,
-            "state": state_snapshot,
-            "organs": self.get_organ_status(),
-        }
+        return self.get_status()
 
     def describe(self) -> Dict[str, Any]:
-        return {
-            "jarvis": "JARVIS",
-            "version": self.VERSION,
-            "running": self.running,
-            "organs": list(self.organs.keys()),
-            "state": (self.state.snapshot()
-                      if self.state and callable(getattr(self.state, "snapshot", None))
-                      else {}),
-        }
+        return self.get_status()
