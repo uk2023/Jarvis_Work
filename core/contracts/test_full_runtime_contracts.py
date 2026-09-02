@@ -1,15 +1,14 @@
-"""End-to-end contract enforcement smoke test for the live blueprint runtime."""
+"""End-to-end runtime contract test for the actual BlueprintBrain path."""
 
 from __future__ import annotations
 
 import time
 from typing import Any, Mapping, Optional
 
-from ..orchestration.contract_enforced_brain import ContractEnforcedBlueprintBrain
+from ..orchestration.blueprint_brain import BlueprintBrain
 from ..orchestration.cognitive_router import CognitiveDecision
 from ..orchestration.perception import PerceptionEngine, PerceptionResult
 from ..cognition.semantic_understanding import SemanticUnderstanding
-from ..cognition.semantic_understanding.brain_adapter import SemanticBrainAdapter
 
 
 class StubPerceptionProvider:
@@ -20,7 +19,7 @@ class StubPerceptionProvider:
             user_input=user_input,
             normalized_text=user_input,
             intent={"name": "statement", "confidence": 0.95, "source": self.name},
-            entities=[], language="en", confidence=0.95, uncertainty=0.05,
+            entities={}, language="en", confidence=0.95, uncertainty=0.05,
             source=self.name, reason="contract runtime test",
         )
 
@@ -65,16 +64,14 @@ class StubLearning:
 def test_full_runtime_contract_chain() -> None:
     router = CapturingRouter()
     learning = StubLearning()
-    brain = ContractEnforcedBlueprintBrain(
+    brain = BlueprintBrain(
         perception_engine=PerceptionEngine(providers=[StubPerceptionProvider()]),
         cognitive_router=router,
         llm_bridge=StubLLM(),
         experience_engine=StubExperience(),
         learning_coordinator=learning,
+        semantic_understanding=SemanticUnderstanding(semantic_memory=None),
     )
-    adapter = SemanticBrainAdapter(semantic=SemanticUnderstanding(semantic_memory=None))
-    adapter.attach(brain)
-
     brain.start()
     try:
         response = brain.think_and_respond("I like Python")
@@ -83,18 +80,26 @@ def test_full_runtime_contract_chain() -> None:
         while time.time() < deadline and brain._learning_queue.processed < 1:
             time.sleep(0.01)
 
-        assert router.last_input is not None
-        assert brain.last_cognition_output["cognitive_context"] == brain.last_cognition_input
-        assert brain.last_router_input["cognitive_context"] == brain.last_cognition_input
-        assert brain.last_router_output["route"] == "llm"
-        assert brain.last_brain_input["cognitive_context"] == brain.last_cognition_input
-        assert brain.last_brain_output["response"] == "contract runtime response"
-        assert brain.last_experience_input["brain_result"] == brain.last_brain_output
-        assert brain.last_experience_output["experience"]
-        assert brain.last_learning_input["experience"] == brain.last_experience_output["experience"]
-        assert brain.last_learning_output["learning_result"]
-        assert brain.last_memory_input["learning_result"] == brain.last_learning_output["learning_result"]
-        assert brain.last_memory_output["memory_context"] is not None
+        contracts = brain.last_contracts
+        required = {
+            "perception.input", "perception.output",
+            "semantic_understanding.input", "semantic_understanding.output",
+            "cognition.input", "cognition.output",
+            "cognitive_router.input", "cognitive_router.output",
+            "brain.input", "brain.output",
+            "experience.input", "experience.output",
+            "learning.input", "learning.output",
+            "self_evaluation.input", "self_evaluation.output",
+            "memory.input", "memory.output",
+        }
+        assert required <= set(contracts)
+        assert router.last_input == contracts["cognitive_router.input"]["cognitive_context"]
+        assert contracts["brain.input"]["cognitive_context"] == contracts["cognition.input"]
+        assert contracts["brain.output"]["response"] == response
+        assert contracts["experience.input"]["outcome"]
+        assert contracts["learning.input"]["experience"] == contracts["experience.output"]["experience"]
+        assert contracts["self_evaluation.output"]["evaluation"]["success"] is True
+        assert contracts["memory.input"]["learning_result"] == contracts["learning.output"]["learning_result"]
         assert brain._learning_queue.failed == 0
         assert learning.calls == 1
     finally:
@@ -103,12 +108,10 @@ def test_full_runtime_contract_chain() -> None:
 
 def main() -> None:
     test_full_runtime_contract_chain()
-    print("PASS: Cognition input/output contracts enforced")
-    print("PASS: Cognitive Router input/output contracts enforced")
-    print("PASS: Brain input/output contracts enforced")
-    print("PASS: Experience input/output contracts enforced")
-    print("PASS: Learning input/output contracts enforced")
-    print("PASS: Memory input/output contracts enforced")
+    print("PASS: direct BlueprintBrain runtime contract chain")
+    print("PASS: Perception -> Semantic Understanding -> Cognition -> Router")
+    print("PASS: Brain -> Experience -> Learning -> SelfEvaluation -> Memory")
+    print("PASS: no ContractEnforcedBlueprintBrain proxy is used")
     print("PASS: full runtime contract chain completed")
 
 

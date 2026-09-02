@@ -7,7 +7,7 @@ from .internal_state import InternalState
 from .event_bus import EventBus
 from .heartbeat import Heartbeat
 from .lifecycle import Lifecycle
-from core.orchestration.contract_enforced_brain import ContractEnforcedBlueprintBrain
+from core.orchestration.blueprint_brain import BlueprintBrain
 from core.orchestration.llm_bridge import HybridLLMBridge
 from core.orchestration.cognitive_router import CognitiveRouter
 from core.orchestration.perception import PerceptionEngine
@@ -28,7 +28,6 @@ from ..skills.skill_registry import SkillRegistry
 from ..skills.skill_executor import SkillExecutor
 from ..skills.skill_learner import SkillLearner
 from ..cognition.semantic_understanding import SemanticUnderstanding
-from ..cognition.semantic_understanding.brain_adapter import SemanticBrainAdapter
 
 
 def create_jarvis(identity=None, personality=None, values=None,
@@ -46,24 +45,12 @@ def create_jarvis(identity=None, personality=None, values=None,
     skill_learner = SkillLearner()
     skill_registry = SkillRegistry()
     learning = LearningCoordinator(
-        evaluator=evaluator,
-        knowledge_builder=knowledge_builder,
-        consolidator=consolidator,
-        memory_manager=memory,
-        event_bus=events,
-        internal_state=state,
-        skill_learner=skill_learner,
-        skill_registry=skill_registry,
+        evaluator=evaluator, knowledge_builder=knowledge_builder, consolidator=consolidator,
+        memory_manager=memory, event_bus=events, internal_state=state,
+        skill_learner=skill_learner, skill_registry=skill_registry,
     )
-    evolution = ControlledEvolutionEngine(
-        event_bus=events,
-        internal_state=state,
-        memory_manager=memory,
-    )
-    runtime_evolution_adapter = RuntimeEvolutionAdapter(
-        event_bus=events,
-        memory_manager=memory,
-    )
+    evolution = ControlledEvolutionEngine(event_bus=events, internal_state=state, memory_manager=memory)
+    runtime_evolution_adapter = RuntimeEvolutionAdapter(event_bus=events, memory_manager=memory)
     evolution.register_adapter(RuntimeEvolutionAdapter.TARGET, runtime_evolution_adapter)
     goal_manager = GoalManager(store=memory.store)
     curiosity = Curiosity()
@@ -73,7 +60,9 @@ def create_jarvis(identity=None, personality=None, values=None,
     skill_executor = SkillExecutor(skill_registry)
     cognitive_router = CognitiveRouter()
     perception = PerceptionEngine(state=state)
-    brain = ContractEnforcedBlueprintBrain(
+    semantic_understanding = SemanticUnderstanding(semantic_memory=memory.semantic)
+
+    brain = BlueprintBrain(
         memory_manager=memory,
         experience_engine=experience_engine,
         learning_coordinator=learning,
@@ -90,22 +79,12 @@ def create_jarvis(identity=None, personality=None, values=None,
         skill_registry=skill_registry,
         skill_executor=skill_executor,
         llm_bridge=llm_bridge,
+        semantic_understanding=semantic_understanding,
     )
 
-    # Neuro-symbolic integration uses the existing SemanticMemory substrate.
-    semantic = SemanticUnderstanding(semantic_memory=memory.semantic)
-    semantic_understanding = SemanticBrainAdapter(semantic=semantic)
-    semantic_understanding.attach(brain)
-
     idle_loop = IdleLoop(
-        goal_manager=goal_manager,
-        curiosity=curiosity,
-        planner=planner,
-        scheduler=scheduler,
-        state=state,
-        event_bus=events,
-        store=memory.store,
-        executor=brain.execute_autonomous_step,
+        goal_manager=goal_manager, curiosity=curiosity, planner=planner, scheduler=scheduler,
+        state=state, event_bus=events, store=memory.store, executor=brain.execute_autonomous_step,
     )
 
     def _on_heartbeat(event) -> None:
@@ -120,11 +99,10 @@ def create_jarvis(identity=None, personality=None, values=None,
         "knowledge_builder": knowledge_builder, "consolidator": consolidator,
         "learning": learning, "evolution": evolution, "curiosity": curiosity,
         "goal_manager": goal_manager, "planner": planner, "scheduler": scheduler,
-        "idle_loop": idle_loop,
-        "skill_registry": skill_registry, "skill_executor": skill_executor,
-        "skill_learner": skill_learner, "perception": perception,
-        "cognitive_router": cognitive_router, "brain": brain,
-        "llm_bridge": llm_bridge,
+        "idle_loop": idle_loop, "skill_registry": skill_registry,
+        "skill_executor": skill_executor, "skill_learner": skill_learner,
+        "perception": perception, "cognitive_router": cognitive_router,
+        "brain": brain, "llm_bridge": llm_bridge,
         "semantic_understanding": semantic_understanding,
         "runtime_evolution_adapter": runtime_evolution_adapter,
     }

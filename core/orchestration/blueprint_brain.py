@@ -1,27 +1,148 @@
 from __future__ import annotations
 
-import time
-from typing import Any, Dict, Optional
+import json
+import re
+from typing import Any, Dict, Mapping, Optional
 
-from ..contracts import validate_input
+from ..contracts import validate_input, validate_output
+from ..cognition.semantic_understanding import SemanticUnderstanding
 from .brain import Brain
 
 
 class BlueprintBrain(Brain):
-    """Blueprint-authoritative Brain runtime.
+    """The actual runtime Brain; contracts are enforced at live boundaries.
 
-    Runtime order:
-    Perception -> Semantic Understanding -> Cognition -> Cognitive Router ->
-    Native/Hybrid/LLM execution -> Response -> Experience/Learning.
-
-    The inherited Brain remains the compatibility organ. This class is the
-    locked runtime entry point used by organism bootstrap.
+    This replaces the old ContractEnforcedBlueprintBrain proxy. The Brain
+    itself owns the Perception -> Semantic Understanding -> Cognition ->
+    Router -> Response -> Experience/Learning orchestration boundary.
     """
 
-    VERSION = "1.1.0"
+    VERSION = "1.2.0"
+
+    _SEMANTIC_FALLBACK_PROMPT = (
+        "You are JARVIS semantic understanding fallback. Return ONLY JSON. "
+        "Do not answer the user and do not invent external facts. "
+        'Shape: {"semantic":{"normalized":"...","intent":{},"entities":[],'
+        '"relations":[],"events":[],"references":[],"confidence":0.0,'
+        '"provenance":{"source":"llm_fallback"},"inferences":[],"unknowns":[]}}'
+    )
+
+    def __init__(self, *args, semantic_understanding: Optional[SemanticUnderstanding] = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.semantic_understanding = semantic_understanding or SemanticUnderstanding(
+            semantic_memory=getattr(self.memory, "semantic", None)
+        )
+        self.last_contracts: Dict[str, Dict[str, Any]] = {}
+        self.last_cognition_output = None
+        self.last_router_input = None
+        self.last_router_output = None
+        self.last_brain_input = None
+        self.last_brain_output = None
+        self.last_experience_input = None
+        self.last_experience_output = None
+        self.last_learning_input = None
+        self.last_learning_output = None
+        self.last_memory_input = None
+        self.last_memory_output = None
+        self.last_self_evaluation_input = None
+        self.last_self_evaluation_output = None
+        self._configure_semantic_fallback()
+
+    def _configure_semantic_fallback(self) -> None:
+        boundary = getattr(self.semantic_understanding, "learning_boundary", None)
+        if boundary is None:
+            return
+        boundary.learning = self.learning
+        if self.llm is None:
+            return
+
+        def fallback(request: Dict[str, Any]) -> Mapping[str, Any]:
+            raw = self.llm.generate_response(
+                system_prompt=self._SEMANTIC_FALLBACK_PROMPT,
+                user_input=str(request.get("text", "")),
+                max_tokens=512,
+                temperature=0.1,
+            )
+            text = re.sub(r"^```(?:json)?\s*|\s*```$", "", str(raw).strip(), flags=re.I | re.S).strip()
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                start, end = text.find("{"), text.rfind("}")
+                if start < 0 or end <= start:
+                    raise ValueError("LLM semantic fallback did not return JSON")
+                payload = json.loads(text[start:end + 1])
+            if not isinstance(payload, dict):
+                raise TypeError("LLM semantic fallback JSON must be an object")
+            semantic = payload.get("semantic", payload)
+            if not isinstance(semantic, dict):
+                raise TypeError("LLM semantic fallback semantic field must be an object")
+            semantic.setdefault("normalized", request.get("text", ""))
+            semantic.setdefault("intent", {})
+            semantic.setdefault("entities", [])
+            semantic.setdefault("relations", [])
+            semantic.setdefault("events", [])
+            semantic.setdefault("references", [])
+            semantic.setdefault("confidence", 0.0)
+            semantic.setdefault("provenance", {"source": "llm_fallback"})
+            semantic.setdefault("inferences", [])
+            semantic.setdefault("unknowns", [])
+            return {"semantic": semantic}
+
+        boundary.llm_fallback = fallback
+
+    def _perceive(self, user_input: str) -> Dict[str, Any]:
+        perception_input = validate_input("perception", {"raw_input": str(user_input)})
+        context = self.build_context(query=perception_input["raw_input"], recent_limit=3) if self.memory is not None else {}
+        result = self.perception.perceive(perception_input["raw_input"], context=context)
+        perception_output = validate_output("perception", result.as_contract_payload())
+        semantic_input = validate_input("semantic_understanding", {
+            "perception": perception_output,
+            "user_input": perception_input["raw_input"],
+            "semantic_context": context,
+        })
+        integrated = self.semantic_understanding.understand(
+            semantic_input["perception"]["normalized_input"],
+            context=semantic_input["semantic_context"],
+            retrieve=True,
+        )
+        semantic = dict(integrated.get("semantic") or {})
+        intent = semantic.get("intent") if isinstance(semantic.get("intent"), dict) else {}
+        semantic_output = validate_output("semantic_understanding", {
+            "normalized_text": str(semantic.get("normalized", perception_output["normalized_input"])),
+            "intent": intent,
+            "entities": list(semantic.get("entities") or []),
+            "relations": list(integrated.get("relations") or semantic.get("relations") or []),
+            "events": list(semantic.get("events") or []),
+            "references": list(semantic.get("references") or []),
+            "confidence": float(semantic.get("confidence", 0.0) or 0.0),
+            "provenance": dict(semantic.get("provenance") or {"source": "native"}),
+            "inferences": list(semantic.get("inferences") or []),
+            "unknowns": list(semantic.get("unknowns") or []),
+        })
+        enriched = result.as_dict()
+        semantic_intent = semantic_output["intent"] if isinstance(semantic_output["intent"], dict) else {}
+        enriched.update({
+            "normalized_text": semantic_output["normalized_text"],
+            "intent": semantic_intent,
+            "entities": semantic_output["entities"],
+            "goal": semantic.get("goal") or semantic_intent.get("goal"),
+            "language": perception_output["language"],
+            "confidence": semantic_output["confidence"],
+            "uncertainty": 1.0 - semantic_output["confidence"],
+            "semantic_understanding": semantic_output,
+            "semantic_evidence": integrated.get("evidence", {}),
+            "semantic_learning": integrated.get("learning", {}),
+        })
+        self.last_perception = enriched
+        self.last_contracts.update({
+            "perception.input": perception_input,
+            "perception.output": perception_output,
+            "semantic_understanding.input": semantic_input,
+            "semantic_understanding.output": semantic_output,
+        })
+        return enriched
 
     def _build_cognition_input(self, user_input: str, perception: Dict[str, Any]) -> Dict[str, Any]:
-        """Assemble canonical Cognition input from semantic output and context."""
         semantic = dict(perception.get("semantic_understanding") or {})
         if not semantic:
             raise RuntimeError("Semantic Understanding result is required before Cognition")
@@ -39,180 +160,128 @@ class BlueprintBrain(Brain):
                     state = dict(snapshot() or {})
                 except Exception:
                     state = {}
-        capabilities = {"skills": getattr(self.skill_registry, "skills", {})}
         cognition_input = validate_input("cognition", {
             "semantic": semantic,
             "memory": context,
             "knowledge": {"relevant_knowledge": context.get("relevant_knowledge", [])},
             "goals": goals,
             "state": state,
-            "capabilities": capabilities,
+            "capabilities": {"skills": getattr(self.skill_registry, "skills", {})},
             "experience": context.get("recent_experiences", []),
         })
         self.last_cognition_input = cognition_input
+        self.last_cognition_output = validate_output("cognition", {
+            "cognitive_context": cognition_input,
+            "confidence": float(semantic.get("confidence", 0.0) or 0.0),
+        })
+        self.last_contracts["cognition.input"] = cognition_input
+        self.last_contracts["cognition.output"] = self.last_cognition_output
         return cognition_input
 
     def _route_cognition(self, user_input: str, perception: Dict[str, Any]) -> Dict[str, Any]:
-        """Run Cognition first; Router receives only canonical cognition.input."""
         cognition_input = self._build_cognition_input(user_input, perception)
-        decision = self.cognitive_router.decide(user_input=user_input, cognition_input=cognition_input)
+        router_input = validate_input("cognitive_router", {"cognitive_context": cognition_input})
+        decision = self.cognitive_router.decide(user_input=user_input, cognition_input=router_input["cognitive_context"])
+        router_output = validate_output("cognitive_router", {
+            "route": decision.mode,
+            "confidence": decision.confidence,
+            "fallback_allowed": decision.llm_required,
+            "evidence": list((decision.evidence or {}).items()),
+        })
         payload = decision.as_dict()
+        payload.update({"route": router_output["route"], "fallback_allowed": router_output["fallback_allowed"]})
+        self.last_router_input = router_input
+        self.last_router_output = router_output
         self.last_cognitive_decision = payload
-        if self.state is not None:
-            try:
-                self.state.update(last_route=decision.mode, confidence=decision.confidence, uncertainty=1.0 - decision.confidence)
-            except Exception:
-                pass
-        self._emit("COGNITION_ROUTED", {"user_input": user_input, "cognition_input": cognition_input, "decision": payload})
+        self.last_brain_input = validate_input("brain", {
+            "cognitive_context": cognition_input,
+            "routing_decision": router_output,
+        })
+        self.last_contracts.update({
+            "cognitive_router.input": router_input,
+            "cognitive_router.output": router_output,
+            "brain.input": self.last_brain_input,
+        })
         return payload
 
-    def think_and_respond(self, user_input: str,
-                          identity_profile: Optional[Dict[str, Any]] = None,
-                          source: str = "cli") -> str:
-        started = time.time()
-        user_input = str(user_input or "").strip()
-        self._emit("BRAIN_CYCLE_STARTED", {"source": source, "user_input": user_input})
-        perception = self._perceive(user_input)
-        route = self._route_cognition(user_input, perception)
-        cognition_input = self.last_cognition_input or {}
-        semantic = cognition_input.get("semantic") or perception.get("semantic_understanding") or {}
-        intent = semantic.get("intent") if isinstance(semantic.get("intent"), dict) else {}
-        skill_name = intent.get("skill") or intent.get("name")
-        perceived_goal = semantic.get("goal") or intent.get("goal") or perception.get("goal")
+    def _enqueue_learning(self, event_type: str, context: Dict[str, Any], action: Dict[str, Any], outcome: Dict[str, Any], source: Optional[str], importance: float) -> None:
+        self.last_brain_output = validate_output("brain", {
+            "decision": dict(self.last_brain_decision or action or {}),
+            "action": outcome.get("action") if isinstance(outcome, dict) else None,
+            "response": outcome.get("response") if isinstance(outcome, dict) else None,
+        })
+        self.last_contracts["brain.output"] = self.last_brain_output
+        super()._enqueue_learning(event_type, context, action, outcome, source, importance)
 
-        if route.get("mode") == "goal":
-            result = self._register_and_plan_goal(perceived_goal)
-            response = "Goal accepted and planned." if result.get("status") == "planned" else "Goal could not be planned."
-            status = result.get("status", "failed")
-            decision = {"route": "goal", "status": status, "goal": result.get("goal"), "plan": result.get("plan", [])}
-            self.last_brain_decision = decision
-            self._record_action_response(mode="native", status=status, response=response, action=decision)
-            self._learn_turn(user_input, perception, route, decision, self.last_action_response, source)
-            self._trace(user_input, response, route, perception, started, False)
-            return response
-
-        mode = str(route.get("mode", "llm")).lower()
-        if mode in {"tool", "native"}:
-            if self.skill_executor is None or not skill_name:
-                response = self._fallback(user_input)
-                decision = {"route": "native", "status": "capability_unavailable", "skill": skill_name}
-                self.last_brain_decision = decision
-                self._record_action_response(mode="native", status="failed", response=response, action=decision, error="capability_not_available")
-                self._learn_turn(user_input, perception, route, decision, self.last_action_response, source)
-                self._trace(user_input, response, route, perception, started, False)
-                return response
-            try:
-                result = self.skill_executor.execute(skill_name, user_input=user_input)
-                response = str(result)
-                decision = {"route": "native", "status": "completed", "skill": skill_name, "result": response}
-                self.last_brain_decision = decision
-                self._record_action_response(mode="native", status="completed", response=response, action=decision)
-                self._learn_turn(user_input, perception, route, decision, self.last_action_response, source)
-                self._trace(user_input, response, route, perception, started, False)
-                return response
-            except Exception as exc:
-                response = f"[Native action failed: {exc}]"
-                decision = {"route": "native", "status": "failed", "skill": skill_name, "error": str(exc)}
-                self.last_brain_decision = decision
-                self._record_action_response(mode="native", status="failed", response=response, action=decision, error=str(exc))
-                self._learn_turn(user_input, perception, route, decision, self.last_action_response, source)
-                self._trace(user_input, response, route, perception, started, False)
-                return response
-
-        if mode == "hybrid":
-            if self.skill_executor is None or not skill_name:
-                mode = "llm"
-            else:
-                try:
-                    native_result = self.skill_executor.execute(skill_name, user_input=user_input)
-                    response = self._hybrid_synthesize(user_input, skill_name, native_result, source)
-                    decision = {"route": "hybrid", "status": "completed", "skill": skill_name, "native_result": str(native_result)}
-                    self.last_brain_decision = decision
-                    self._record_action_response(mode="hybrid", status="completed", response=response, action=decision)
-                    self._learn_turn(user_input, perception, route, decision, self.last_action_response, source)
-                    self._trace(user_input, response, route, perception, started, True)
-                    return response
-                except Exception as exc:
-                    response = f"[Hybrid execution failed: {exc}]"
-                    decision = {"route": "hybrid", "status": "failed", "skill": skill_name, "error": str(exc)}
-                    self.last_brain_decision = decision
-                    self._record_action_response(mode="hybrid", status="failed", response=response, action=decision, error=str(exc))
-                    self._learn_turn(user_input, perception, route, decision, self.last_action_response, source)
-                    self._trace(user_input, response, route, perception, started, self.llm is not None)
-                    return response
-
-        if mode == "known":
-            context = self.build_context(query=semantic.get("normalized_text", user_input), recent_limit=3)
-            facts = context.get("relevant_knowledge", [])
-            if facts:
-                fact = facts[0] if isinstance(facts[0], dict) else {}
-                response = self._format_fact(fact)
-                decision = {"route": "native", "status": "completed", "source": "semantic_memory", "evidence": fact}
-                self.last_brain_decision = decision
-                self._record_action_response(mode="native", status="completed", response=response, action=decision)
-                self._learn_turn(user_input, perception, route, decision, self.last_action_response, source)
-                self._trace(user_input, response, route, perception, started, False)
-                return response
-            mode = "llm"
-
-        if mode == "llm":
-            if self.llm is None:
-                response = self._fallback(user_input)
-                decision = {"route": "llm_fallback", "status": "provider_unavailable"}
-                self.last_brain_decision = decision
-                self._record_action_response(mode="llm", status="degraded", response=response, action=decision)
-                self._learn_turn(user_input, perception, route, decision, self.last_action_response, source)
-                self._trace(user_input, response, route, perception, started, False)
-                return response
-            context = self.build_context(query=semantic.get("normalized_text", user_input), recent_limit=3)
-            prompt = ("Respond to the user using the supplied organism context. "
-                      "The LLM is a fallback cognition capability only. Do not execute actions, "
-                      "do not claim an action happened unless the action result is present, and "
-                      "do not invent facts.")
-            payload = f"Context: {context}\nUser: {user_input}"
-            try:
-                generate = getattr(self.llm, "generate", None)
-                response = str(generate(prompt, payload) if callable(generate) else self.llm.generate_response(system_prompt=prompt, user_input=payload)).strip()
-                response = response or "..."
-                decision = {"route": "llm_fallback", "status": "completed"}
-            except Exception as exc:
-                response = f"[LLM fallback failed: {exc}]"
-                decision = {"route": "llm_fallback", "status": "failed", "error": str(exc)}
-            self.last_brain_decision = decision
-            self._record_action_response(mode="llm", status=decision["status"], response=response, action=decision)
-            self._learn_turn(user_input, perception, route, decision, self.last_action_response, source)
-            self._trace(user_input, response, route, perception, started, True)
-            return response
-
-        response = self._fallback(user_input)
-        decision = {"route": mode, "status": "unsupported_route"}
-        self.last_brain_decision = decision
-        self._record_action_response(mode=mode, status="failed", response=response, action=decision)
-        self._learn_turn(user_input, perception, route, decision, self.last_action_response, source)
-        self._trace(user_input, response, route, perception, started, self.llm is not None)
-        return response
-
-    def _format_fact(self, fact: Dict[str, Any]) -> str:
-        subject = fact.get("subject")
-        predicate = fact.get("predicate")
-        value = fact.get("value")
-        if subject and predicate and value is not None:
-            return f"{subject} {predicate}: {value}"
-        return str(fact.get("content") or fact)
-
-    def _learn_turn(self, user_input: str, perception: Dict[str, Any], route: Dict[str, Any], decision: Dict[str, Any], action_response: Dict[str, Any], source: str) -> None:
-        outcome = dict(action_response or {})
-        outcome["success"] = outcome.get("status") in {"completed", "planned"}
-        self._enqueue_learning(
-            event_type="USER_INTERACTION",
-            context={
-                "user_input": user_input,
-                "semantic": dict(self.last_cognition_input or {}).get("semantic", perception.get("semantic_understanding", {})),
-                "perception": perception,
-                "route": route,
-            },
-            action=decision,
-            outcome=outcome,
-            source=source,
-            importance=0.5,
+    def process_experience(self, event_type: str, context: Optional[Dict[str, Any]] = None,
+                           action: Optional[Dict[str, Any]] = None, outcome: Optional[Dict[str, Any]] = None,
+                           source: Optional[str] = None, importance: float = 0.5,
+                           build_knowledge: bool = True, auto_accept: Optional[bool] = None) -> Dict[str, Any]:
+        experience_input = validate_input("experience", {
+            "event_type": str(event_type), "context": dict(context or {}),
+            "action": dict(action or {}), "outcome": dict(outcome or {}),
+            "source": str(source or "unknown"), "importance": float(importance),
+        })
+        self.last_experience_input = experience_input
+        self.last_contracts["experience.input"] = experience_input
+        result = super().process_experience(
+            event_type=experience_input["event_type"], context=experience_input["context"],
+            action=experience_input["action"], outcome=experience_input["outcome"],
+            source=experience_input["source"], importance=experience_input["importance"],
+            build_knowledge=build_knowledge, auto_accept=auto_accept,
         )
+        learning_result = result.get("learning") if isinstance(result, dict) else {}
+        experience_payload = result.get("experience") if isinstance(result, dict) else {}
+        evaluation = learning_result.get("evaluation") if isinstance(learning_result, dict) else {}
+        self.last_experience_output = validate_output("experience", {
+            "evaluation": dict(evaluation or {}),
+            "experience": dict(experience_payload or {}),
+        })
+        self.last_contracts["experience.output"] = self.last_experience_output
+        if isinstance(learning_result, dict):
+            self.last_learning_input = validate_input("learning", {"experience": dict(experience_payload or {})})
+            knowledge = learning_result.get("knowledge")
+            updates = knowledge if isinstance(knowledge, list) else ([knowledge] if knowledge is not None else [])
+            self.last_learning_output = validate_output("learning", {
+                "learning_result": learning_result, "knowledge_updates": updates,
+            })
+            self.last_contracts["learning.input"] = self.last_learning_input
+            self.last_contracts["learning.output"] = self.last_learning_output
+            if isinstance(evaluation, dict):
+                self.last_self_evaluation_input = validate_input("self_evaluation", {"experience": dict(experience_payload or {})})
+                self.last_self_evaluation_output = validate_output("self_evaluation", {"evaluation": evaluation})
+                self.last_contracts["self_evaluation.input"] = self.last_self_evaluation_input
+                self.last_contracts["self_evaluation.output"] = self.last_self_evaluation_output
+            self.last_memory_input = validate_input("memory", {"learning_result": learning_result})
+            memory_context = {}
+            if self.memory is not None:
+                stats = getattr(self.memory, "statistics", None)
+                if callable(stats):
+                    try:
+                        memory_context = dict(stats() or {})
+                    except Exception:
+                        memory_context = {}
+            self.last_memory_output = validate_output("memory", {"memory_context": memory_context})
+            self.last_contracts["memory.input"] = self.last_memory_input
+            self.last_contracts["memory.output"] = self.last_memory_output
+        return result
+
+    def learn(self, experience: Dict[str, Any], auto_accept: Optional[bool] = None) -> Dict[str, Any]:
+        learning_input = validate_input("learning", {"experience": dict(experience)})
+        result = super().learn(learning_input["experience"], auto_accept=auto_accept)
+        knowledge = result.get("knowledge") if isinstance(result, dict) else None
+        updates = knowledge if isinstance(knowledge, list) else ([knowledge] if knowledge is not None else [])
+        self.last_learning_input = learning_input
+        self.last_learning_output = validate_output("learning", {"learning_result": dict(result or {}), "knowledge_updates": updates})
+        self.last_contracts["learning.input"] = learning_input
+        self.last_contracts["learning.output"] = self.last_learning_output
+        return result
+
+    def evaluate(self, experience: Dict[str, Any]) -> Dict[str, Any]:
+        self_eval_input = validate_input("self_evaluation", {"experience": dict(experience)})
+        result = super().evaluate(self_eval_input["experience"])
+        self.last_self_evaluation_input = self_eval_input
+        self.last_self_evaluation_output = validate_output("self_evaluation", {"evaluation": dict(result or {})})
+        self.last_contracts["self_evaluation.input"] = self_eval_input
+        self.last_contracts["self_evaluation.output"] = self.last_self_evaluation_output
+        return result
