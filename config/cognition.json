@@ -1,0 +1,5 @@
+{
+  "routing": {
+    "minimum_confidence": 0.6
+  }
+}
