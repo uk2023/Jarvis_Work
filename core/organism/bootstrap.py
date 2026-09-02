@@ -7,7 +7,7 @@ from .internal_state import InternalState
 from .event_bus import EventBus
 from .heartbeat import Heartbeat
 from .lifecycle import Lifecycle
-from core.orchestration.brain import Brain
+from core.orchestration.contract_enforced_brain import ContractEnforcedBlueprintBrain
 from core.orchestration.llm_bridge import HybridLLMBridge
 from core.orchestration.cognitive_router import CognitiveRouter
 from core.orchestration.perception import PerceptionEngine
@@ -73,7 +73,7 @@ def create_jarvis(identity=None, personality=None, values=None,
     skill_executor = SkillExecutor(skill_registry)
     cognitive_router = CognitiveRouter()
     perception = PerceptionEngine(state=state)
-    brain = Brain(
+    brain = ContractEnforcedBlueprintBrain(
         memory_manager=memory,
         experience_engine=experience_engine,
         learning_coordinator=learning,
