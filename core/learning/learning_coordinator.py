@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 class LearningCoordinator:
     """Central orchestration organ for controlled learning, proposals, and activation."""
 
-    VERSION = "0.4.0"
+    VERSION = "0.5.0"
 
     def __init__(self, evaluator=None, knowledge_builder=None, consolidator=None,
                  memory_manager=None, event_bus=None, internal_state=None,
@@ -37,12 +37,31 @@ class LearningCoordinator:
         started_at = time.time()
         result = {"type": "LEARNING_CYCLE", "success": False, "experience": experience,
                   "evaluation": None, "knowledge": None, "accepted": False,
-                  "skill_proposals": [], "duration": 0.0, "timestamp": None}
+                  "skill_proposals": [], "learning_eligible": False,
+                  "eligibility_reason": None, "duration": 0.0, "timestamp": None}
         if self.evaluator is None:
             raise RuntimeError("SelfEvaluator is not connected.")
+
         evaluation = self.evaluator.evaluate(experience)
         result["evaluation"] = evaluation
         self.evaluation_count += 1
+
+        eligible, reason = self._learning_eligibility(experience, evaluation)
+        result["learning_eligible"] = eligible
+        result["eligibility_reason"] = reason
+
+        # Evaluation is evidence generation; it is not permission to learn.
+        # Unknown/insufficiently evidenced outcomes must stop here so that
+        # neither knowledge nor executable capability can be derived from them.
+        if not eligible:
+            self.knowledge_reject_count += 1
+            result["duration"] = time.time() - started_at
+            result["timestamp"] = time.time()
+            self.last_learning_at = result["timestamp"]
+            self.last_result = result
+            self._emit("LEARNING_REJECTED", result)
+            return result
+
         if self.knowledge_builder is not None:
             candidate = self.knowledge_builder.build(experience=experience, evaluation=evaluation)
             result["knowledge"] = candidate
@@ -51,6 +70,7 @@ class LearningCoordinator:
                 if auto_accept:
                     accepted = self.accept_knowledge(candidate["id"])
                     result["accepted"] = accepted.get("status") == "ACCEPTED"
+
         if self.skill_learner is not None:
             observe = getattr(self.skill_learner, "observe", None)
             if callable(observe):
@@ -60,6 +80,7 @@ class LearningCoordinator:
                 self.skill_proposal_count = len(proposals or [])
                 if proposals:
                     self._emit("SKILL_PROPOSALS_GENERATED", {"proposals": proposals})
+
         self.learning_count += 1
         self.last_learning_at = time.time()
         result["success"] = True
@@ -68,6 +89,37 @@ class LearningCoordinator:
         self.last_result = result
         self._emit("LEARNING_COMPLETED", result)
         return result
+
+    @staticmethod
+    def _learning_eligibility(experience: Dict[str, Any], evaluation: Dict[str, Any]):
+        """Return whether an experience contains sufficient outcome evidence.
+
+        The blueprint requires learning eligibility to be distinct from merely
+        observing an experience. Explicit success/failure or a recognized
+        terminal outcome status is required; missing evidence is not success.
+        """
+        if not isinstance(evaluation, dict):
+            return False, "INVALID_EVALUATION"
+
+        if "success" in experience:
+            return bool(experience["success"]), "EXPLICIT_EXPERIENCE_SUCCESS"
+
+        outcome = experience.get("outcome")
+        if not isinstance(outcome, dict):
+            return False, "MISSING_OUTCOME_EVIDENCE"
+
+        if "success" in outcome:
+            return bool(outcome["success"]), "EXPLICIT_OUTCOME_SUCCESS"
+
+        status = outcome.get("status")
+        if isinstance(status, str):
+            normalized = status.strip().upper()
+            if normalized in {"SUCCESS", "COMPLETED", "DONE"}:
+                return True, "TERMINAL_SUCCESS_STATUS"
+            if normalized in {"FAILED", "FAILURE", "ERROR"}:
+                return False, "TERMINAL_FAILURE_STATUS"
+
+        return False, "INSUFFICIENT_OUTCOME_EVIDENCE"
 
     def evaluate(self, experience):
         if not self.running:
