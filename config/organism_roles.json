@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "purpose": "Canonical human-readable responsibility map for runtime organs. Execution authority remains in code and blueprint boundaries.",
+  "organs": {
+    "memory": "Persistent episodic/semantic memory access and storage.",
+    "experience": "Records meaningful execution outcomes as experiences.",
+    "evaluator": "Evaluates experiences and determines whether they provide a learning signal.",
+    "knowledge_builder": "Constructs knowledge candidates from accepted learning signals.",
+    "consolidator": "Consolidates eligible memory into durable representations.",
+    "learning": "Controlled dispatcher separating knowledge learning from capability learning.",
+    "evolution": "Controlled proposal, validation, approval and runtime evolution boundary.",
+    "curiosity": "Generates safe learning candidates from unresolved uncertainty and useful gaps.",
+    "goal_manager": "Maintains and prioritizes autonomous goals.",
+    "planner": "Transforms approved goals or candidates into ordered plans.",
+    "scheduler": "Schedules bounded background and idle work.",
+    "idle_loop": "Drives autonomous work during idle periods through the normal organism path.",
+    "skill_registry": "Stores approved executable capabilities only.",
+    "skill_executor": "Executes registered skills and returns outcomes to the experience path.",
+    "skill_learner": "Detects repeated verified capability and creates skill proposals.",
+    "perception": "Normalizes input and extracts structured perceptual information.",
+    "cognitive_router": "Selects NATIVE, HYBRID or LLM FALLBACK from available evidence/capability.",
+    "brain": "Commits cognitive results into structured decisions and coordinates the lifecycle.",
+    "llm_bridge": "Optional reasoning/synthesis capability and fallback; not the organism controller.",
+    "semantic_understanding": "Provides semantic interpretation and semantic-memory integration.",
+    "runtime_evolution_adapter": "Explicit allowlisted adapter through which approved runtime evolution is applied."
+  }
+}
