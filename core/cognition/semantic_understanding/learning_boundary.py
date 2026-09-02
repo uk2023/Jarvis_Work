@@ -92,7 +92,7 @@ class LearnedSemanticRegistry:
 class SemanticLearningBoundary:
     """Gate unknown semantic cases through fallback, evaluation and promotion."""
 
-    VERSION = "0.2.0"
+    VERSION = "0.2.1"
 
     def __init__(self, *, llm_fallback: Optional[LLMFallback] = None,
                  learning_coordinator: Optional[Any] = None,
@@ -112,8 +112,15 @@ class SemanticLearningBoundary:
             return 0.0
 
     def needs_fallback(self, result: Mapping[str, Any]) -> bool:
+        """Fallback at or below the native confidence boundary.
+
+        The native engine intentionally uses the threshold value for an
+        unclassified statement. Treating equality as native made exactly
+        those unknown/ambiguous statements bypass the fallback. The boundary
+        is therefore inclusive: unknowns OR confidence <= threshold.
+        """
         unknowns = result.get("unknowns")
-        return bool(unknowns) or self._confidence(result) < self.native_confidence_threshold
+        return bool(unknowns) or self._confidence(result) <= self.native_confidence_threshold
 
     def apply_learned_capability(self, text: str) -> Optional[Dict[str, Any]]:
         match = self.registry.match(text)
