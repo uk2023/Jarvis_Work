@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import time
 from .cognitive_router import CognitiveRouter
@@ -26,21 +25,21 @@ class Brain:
         - the evolution engine
         - an unrestricted executor
 
-    Architecture:
+    Authoritative semantic architecture:
 
-        Input
+        User Input
           ↓
-        Brain
+        Perception
           ↓
-        ExperienceEngine
+        Semantic Understanding
           ↓
-        LearningCoordinator
+        Structured Semantic Result
           ↓
-        SelfEvaluator
+        Cognition
           ↓
-        KnowledgeBuilder
+        Response
           ↓
-        Memory / Consolidation
+        Experience / Learning
 
     Evolution remains controlled:
 
@@ -54,76 +53,10 @@ class Brain:
 
     Brain only orchestrates these operations.
 
-    ----------------------------------------------------------------
-    FIX LOG (this version)
-    ----------------------------------------------------------------
-    Root cause of "knowledge table stays at 0 rows even though
-    episodes/chat_messages keep growing":
-
-        process_experience() was always building a knowledge
-        CANDIDATE (via KnowledgeBuilder.build / LearningCoordinator.learn)
-        but never ACCEPTING it. auto_accept defaulted to False
-        everywhere it was called from (including think_and_respond),
-        and the compatibility-fallback branch hard-coded
-        "accepted": False with no accept step at all.
-
-        A built-but-unaccepted knowledge candidate is normally kept
-        out of the persistent knowledge store on purpose (human/agent
-        review gate) — but nothing in the pipeline was ever calling
-        accept_knowledge() afterwards, so candidates just evaporated.
-
-    Fix:
-        1. Brain now has self.auto_accept_knowledge (default True).
-           think_and_respond() and process_experience() use this
-           instead of a hard-coded False.
-        2. The compatibility-fallback branch (no LearningCoordinator
-           connected) now actually calls knowledge_builder.accept()
-           when auto_accept is True, instead of silently discarding
-           the candidate.
-        3. Removed dead/unreachable code after the first `return` in
-           think_and_respond (duplicate pipeline-trigger block and a
-           duplicate `except` that could never execute and would have
-           been a SyntaxError-adjacent trap).
-        4. Removed the duplicate `_finish_cycle` / `_emit` method
-           definitions (Python just silently used the second one,
-           but keeping two definitions of the same method is a
-           landmine for future edits).
-
-    5. NEW: even with (1)-(4) fixed, normal chat still produced
-       zero knowledge. KnowledgeBuilder._extract_semantic_fact()
-       only accepts an EXPLICIT subject/predicate/value triple
-       already present in `context` or `outcome` — free chat text
-       never has that shape on its own. think_and_respond() now
-       makes a second, small LLM call (_extract_fact) after every
-       turn to pull a {subject, predicate, value} triple out of
-       the conversation (if one exists) and merges it into
-       `outcome` before process_experience() runs. This is the
-       step that actually turns "meri ex ka naam Devyana hai" into
-       a rememberable fact instead of just a chat log line.
-    ----------------------------------------------------------------
-    FIX LOG (0.6.0 — single-call + async learning queue)
-    ----------------------------------------------------------------
-    Root cause of the latency the architecture review flagged:
-    think_and_respond() was making TWO blocking LLM calls per turn
-    (reply, then a separate fact-extraction call) and running the
-    ENTIRE learning pipeline inline before returning to the user.
-
-    Fix:
-        1. LLMBridge.generate_combined() asks Qwen to return
-           {response, memory} in ONE call — half the tokens, half
-           the latency, same "Qwen never writes the DB" separation.
-        2. process_experience() no longer runs inline. It's handed
-           to AsyncLearningQueue (core/learning/learning_queue.py),
-           a single ordered background worker, so learning can never
-           add latency to a reply and can never race itself across
-           two overlapping prompts. Retrieval (build_context) still
-           runs synchronously at the START of every new prompt, so
-           the next turn always sees whatever the previous turn
-           finished learning.
-        3. Falls back to the old two-call synchronous path automatically
-           if the connected llm_bridge doesn't implement
-           generate_combined(), so nothing breaks for older bridges.
-    ----------------------------------------------------------------
+    Semantic understanding is authoritative for semantic interpretation.
+    Brain orchestrates Perception → Semantic Understanding → Cognition →
+    Response → Experience / Learning and does not perform a second semantic
+    extraction pass through the LLM.
     """
 
     VERSION = "0.6.0"
@@ -710,47 +643,34 @@ class Brain:
         )
 
         try:
-            generate_combined = getattr(self.llm, "generate_combined", None)
+            generate = getattr(self.llm, "generate", None)
 
-            if callable(generate_combined):
-                combined = generate_combined(
-                    system_prompt=system_prompt,
-                    user_input=context_prompt,
-                )
+            if callable(generate):
                 response = str(
-                    combined.get("response", "")
-                    if isinstance(combined, dict)
-                    else combined
+                    generate(
+                        system_prompt,
+                        context_prompt,
+                    )
                 ).strip()
             else:
-                generate = getattr(self.llm, "generate", None)
+                generate_response = getattr(
+                    self.llm,
+                    "generate_response",
+                    None,
+                )
 
-                if callable(generate):
-                    response = str(
-                        generate(
-                            system_prompt,
-                            context_prompt,
-                        )
-                    ).strip()
-                else:
-                    generate_response = getattr(
-                        self.llm,
-                        "generate_response",
-                        None,
+                if not callable(generate_response):
+                    raise AttributeError(
+                        "LLM bridge exposes neither generate() nor "
+                        "generate_response()."
                     )
 
-                    if not callable(generate_response):
-                        raise AttributeError(
-                            "LLM bridge exposes neither generate_combined(), "
-                            "generate(), nor generate_response()."
-                        )
-
-                    response = str(
-                        generate_response(
-                            system_prompt=system_prompt,
-                            user_input=context_prompt,
-                        )
-                    ).strip()
+                response = str(
+                    generate_response(
+                        system_prompt=system_prompt,
+                        user_input=context_prompt,
+                    )
+                ).strip()
 
             if not response:
                 response = "..."
@@ -858,69 +778,6 @@ class Brain:
             )
         except Exception as exp_err:
             print(f"[Brain Pipeline Warning] Could not process experience: {exp_err}")
-
-    # =============================================================
-    # FACT EXTRACTION (turns free chat into a structured triple)
-    # =============================================================
-
-    _FACT_EXTRACTION_PROMPT = (
-        "You are an expert fact extractor for a personal AI companion. "
-        "Extract ONE factual statement from the conversation turn if one exists. "
-        "The user often speaks in Hinglish with minor spelling typos (e.g. 'nan' instead of 'naam'). "
-        "Correct typos automatically and extract clear subject, predicate, and value. "
-        "Return ONLY a raw JSON object. If no clear fact exists, return exactly: "
-        '{"has_fact": false}\n\n'
-        "Examples:\n"
-        'User: "mera ex ka nan devyana h"\n'
-        'Output: {"has_fact": true, "subject": "user_ex", "predicate": "name", "value": "Devyana"}\n\n'
-        "subject/predicate should be short lowercase phrases."      
-    )
-
-    def _extract_fact(self, user_input: str, jarvis_response: str) -> Optional[Dict[str, Any]]:
-        if self.llm is None:
-            return None
-
-        # Thoda sa gap dein taaki key rotator next active key pick kar sake
-        import time
-        time.sleep(1.0)
-
-        raw = ""
-        try:
-            raw = self.llm.generate_response(
-                system_prompt=getattr(self, "_FACT_EXTRACTION_PROMPT", "Extract facts as JSON with subject, predicate, value."),
-                user_input=f"User said: {user_input}\nAssistant replied: {jarvis_response}",
-                max_tokens=500,
-                temperature=0.0,
-            )
-        except Exception as e:
-            print(f"[EXTRACT ERROR WITH KEYS]: {e}")
-
-        print(f"[DEBUG ROTATED KEY FACT OUTPUT]: {repr(raw)}")
-
-        if not raw or not isinstance(raw, str) or not raw.strip():
-            return None
-
-        cleaned = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.MULTILINE).strip()
-
-        try:
-            data = json.loads(cleaned)
-        except Exception:
-            return None
-
-        if not isinstance(data, dict) or not data.get("has_fact"):
-            return None
-
-        subject = str(data.get("subject", "")).strip()
-        predicate = str(data.get("predicate", "")).strip()
-        value = data.get("value")
-
-        if not subject or not predicate or value in (None, ""):
-            return None
-
-        print(f"[SUCCESS EXTRACTED]: {subject} -> {predicate} -> {value}")
-        return {"subject": subject, "predicate": predicate, "value": value}
-
-
 
     # =============================================================
     # PROCESS EXPERIENCE
@@ -1462,17 +1319,16 @@ class Brain:
     def _hybrid_synthesize(self, user_input: str, skill_name: str, native_result: Any, source: str) -> str:
         if self.llm is None:
             return str(native_result)
+
         system_prompt = "You are JARVIS's response synthesizer. A native organism skill has already executed successfully. Do not invent actions or claim to execute anything. Return a concise user-facing response based only on the native result."
         synthesis_input = f"User request: {user_input}\nNative skill: {skill_name}\nNative result: {native_result}"
         try:
-            generate_combined = getattr(self.llm, "generate_combined", None)
-            if callable(generate_combined):
-                combined = generate_combined(system_prompt=system_prompt, user_input=synthesis_input)
-                if isinstance(combined, dict) and combined.get("response"):
-                    return str(combined["response"])
             generate = getattr(self.llm, "generate", None)
             if callable(generate):
                 return str(generate(system_prompt, synthesis_input)).strip()
+            generate_response = getattr(self.llm, "generate_response", None)
+            if callable(generate_response):
+                return str(generate_response(system_prompt=system_prompt, user_input=synthesis_input)).strip()
         except Exception as exc:
             self.last_brain_decision = {"mode": "hybrid", "status": "native_success_llm_synthesis_failed", "error": str(exc)}
         return str(native_result)

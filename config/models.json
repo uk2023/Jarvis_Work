@@ -8,18 +8,5 @@
     "n_ctx": 4096,
     "n_threads": 4,
     "note": "q4_k_m 3B is roughly 2.0-2.2GB resident on an 8GB Android device, leaving room for the app + OS. If a device is tighter on RAM, drop n_ctx to 2048 first before switching to a smaller model -- context length costs more RAM growth than the base weights once chat history builds up."
-  },
-  "combined_call": {
-    "enabled": true,
-    "description": "generate_combined() asks the chat model for {response, memory} in a single call instead of a separate reply call + fact-extraction call. This is the primary latency/token reduction for the offline 3B model.",
-    "schema": {
-      "response": "string - natural in-character reply",
-      "memory": {
-        "has_fact": "boolean",
-        "subject": "string (only if has_fact)",
-        "predicate": "string (only if has_fact)",
-        "value": "string (only if has_fact)"
-      }
-    }
   }
 }
