@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
-BRAIN = ROOT / "orchestration" / "brain.py"
+ROOT = Path(__file__).resolve().parents[2]
+BRAIN = ROOT / "core" / "orchestration" / "brain.py"
 
 
 def test_brain_has_no_runtime_legacy_fact_extraction_call() -> None:
