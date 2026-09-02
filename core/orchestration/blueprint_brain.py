@@ -12,12 +12,12 @@ from .brain import Brain
 class BlueprintBrain(Brain):
     """The actual runtime Brain; contracts are enforced at live boundaries.
 
-    This replaces the old ContractEnforcedBlueprintBrain proxy. The Brain
-    itself owns the Perception -> Semantic Understanding -> Cognition ->
-    Router -> Response -> Experience/Learning orchestration boundary.
+    The Brain itself owns the Perception -> Semantic Understanding ->
+    Cognition -> Router -> Response -> Experience/Learning orchestration
+    boundary. There is no proxy wrapper around this runtime organ.
     """
 
-    VERSION = "1.2.0"
+    VERSION = "1.3.0"
 
     _SEMANTIC_FALLBACK_PROMPT = (
         "You are JARVIS semantic understanding fallback. Return ONLY JSON. "
@@ -89,6 +89,50 @@ class BlueprintBrain(Brain):
             return {"semantic": semantic}
 
         boundary.llm_fallback = fallback
+
+    def think_and_respond(
+        self,
+        user_input: str,
+        identity_profile: Optional[Dict[str, Any]] = None,
+        source: str = "cli",
+    ) -> str:
+        """Run one normal Brain turn and enqueue its structured experience.
+
+        The base Brain owns response generation. This runtime subclass adds
+        the missing architectural hand-off: every completed turn becomes one
+        structured Experience/Learning job after the response is produced.
+        Semantic interpretation still happens only inside SemanticUnderstanding.
+        """
+        response = super().think_and_respond(
+            user_input=user_input,
+            identity_profile=identity_profile,
+            source=source,
+        )
+
+        semantic = dict((self.last_perception or {}).get("semantic_understanding") or {})
+        cognition = dict(getattr(self, "last_cognition_input", None) or {})
+        decision = dict(self.last_brain_decision or {})
+        action_response = getattr(self, "last_action_response", None)
+
+        self._enqueue_learning(
+            event_type="USER_CHAT",
+            context={
+                "user_input": str(user_input or ""),
+                "semantic": semantic,
+                "cognition": cognition,
+            },
+            action={
+                "decision": decision,
+                "action_response": action_response if isinstance(action_response, dict) else {},
+            },
+            outcome={
+                "response": str(response),
+                "action": action_response if isinstance(action_response, dict) else {},
+            },
+            source=source,
+            importance=0.5,
+        )
+        return response
 
     def _perceive(self, user_input: str) -> Dict[str, Any]:
         perception_input = validate_input("perception", {"raw_input": str(user_input)})
@@ -283,5 +327,5 @@ class BlueprintBrain(Brain):
         self.last_self_evaluation_input = self_eval_input
         self.last_self_evaluation_output = validate_output("self_evaluation", {"evaluation": dict(result or {})})
         self.last_contracts["self_evaluation.input"] = self_eval_input
-        self.last_contracts["self_evaluation.output"] = self.last_self_evaluation_output
+        self.last_contracts["self_evaluation.output"] = self_eval_output
         return result
