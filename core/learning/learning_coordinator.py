@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 class LearningCoordinator:
     """Central orchestration organ for controlled learning, proposals, and activation."""
 
-    VERSION = "0.5.0"
+    VERSION = "0.6.0"
 
     def __init__(self, evaluator=None, knowledge_builder=None, consolidator=None,
                  memory_manager=None, event_bus=None, internal_state=None,
@@ -51,8 +51,10 @@ class LearningCoordinator:
         result["eligibility_reason"] = reason
 
         # Evaluation is evidence generation; it is not permission to learn.
-        # Unknown/insufficiently evidenced outcomes must stop here so that
-        # neither knowledge nor executable capability can be derived from them.
+        # An experience must contain explicit outcome evidence. Both successful
+        # and actionable failed outcomes can be learned from; an absent/unknown
+        # outcome cannot become knowledge merely because the evaluator defaulted
+        # to a successful score.
         if not eligible:
             self.knowledge_reject_count += 1
             result["duration"] = time.time() - started_at
@@ -71,9 +73,12 @@ class LearningCoordinator:
                     accepted = self.accept_knowledge(candidate["id"])
                     result["accepted"] = accepted.get("status") == "ACCEPTED"
 
+        # Skill acquisition remains success-gated. Failures may produce
+        # validated knowledge/error patterns, but must not directly become
+        # executable capabilities.
         if self.skill_learner is not None:
             observe = getattr(self.skill_learner, "observe", None)
-            if callable(observe):
+            if callable(observe) and bool(evaluation.get("success")):
                 proposals = observe(experience)
                 self.skill_observation_count += 1
                 result["skill_proposals"] = proposals
@@ -94,22 +99,26 @@ class LearningCoordinator:
     def _learning_eligibility(experience: Dict[str, Any], evaluation: Dict[str, Any]):
         """Return whether an experience contains sufficient outcome evidence.
 
-        The blueprint requires learning eligibility to be distinct from merely
-        observing an experience. Explicit success/failure or a recognized
-        terminal outcome status is required; missing evidence is not success.
+        Learning requires explicit outcome evidence. A failure is eligible when
+        it carries actionable evidence (an error, errors, detail, or feedback),
+        allowing failure-driven knowledge without promoting failure into a skill.
         """
         if not isinstance(evaluation, dict):
             return False, "INVALID_EVALUATION"
 
         if "success" in experience:
-            return bool(experience["success"]), "EXPLICIT_EXPERIENCE_SUCCESS"
+            if bool(experience["success"]):
+                return True, "EXPLICIT_EXPERIENCE_SUCCESS"
+            return LearningCoordinator._failure_has_evidence(experience, evaluation)
 
         outcome = experience.get("outcome")
         if not isinstance(outcome, dict):
             return False, "MISSING_OUTCOME_EVIDENCE"
 
         if "success" in outcome:
-            return bool(outcome["success"]), "EXPLICIT_OUTCOME_SUCCESS"
+            if bool(outcome["success"]):
+                return True, "EXPLICIT_OUTCOME_SUCCESS"
+            return LearningCoordinator._failure_has_evidence(experience, evaluation)
 
         status = outcome.get("status")
         if isinstance(status, str):
@@ -117,9 +126,19 @@ class LearningCoordinator:
             if normalized in {"SUCCESS", "COMPLETED", "DONE"}:
                 return True, "TERMINAL_SUCCESS_STATUS"
             if normalized in {"FAILED", "FAILURE", "ERROR"}:
-                return False, "TERMINAL_FAILURE_STATUS"
+                return LearningCoordinator._failure_has_evidence(experience, evaluation)
 
         return False, "INSUFFICIENT_OUTCOME_EVIDENCE"
+
+    @staticmethod
+    def _failure_has_evidence(experience: Dict[str, Any], evaluation: Dict[str, Any]):
+        outcome = experience.get("outcome")
+        outcome = outcome if isinstance(outcome, dict) else {}
+        explicit = outcome.get("error") or outcome.get("errors") or outcome.get("detail")
+        eval_errors = evaluation.get("errors") if isinstance(evaluation, dict) else None
+        if explicit or eval_errors:
+            return True, "ACTIONABLE_FAILURE_EVIDENCE"
+        return False, "FAILURE_WITHOUT_ACTIONABLE_EVIDENCE"
 
     def evaluate(self, experience):
         if not self.running:
