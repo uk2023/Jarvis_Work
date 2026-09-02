@@ -9,7 +9,7 @@ from core.identity import Identity, Values, Personality
 class JarvisCore:
     """Central organism coordinator."""
 
-    VERSION = "0.1.0"
+    VERSION = "0.2.0"
 
     def __init__(self, identity=None, personality=None, values=None,
                  state=None, event_bus=None, lifecycle=None, heartbeat=None,
@@ -19,16 +19,11 @@ class JarvisCore:
         self.values = values if values is not None else Values()
         self.state = state
 
-        # `event_bus` is the canonical runtime name. `events` remains a
-        # compatibility alias for existing organism code.
         self.event_bus = event_bus
         self.events = event_bus
         self.lifecycle = lifecycle
         self.heartbeat = heartbeat
-
-        # Bootstrap may provide the initial organ map.
         self.organs: Dict[str, Any] = dict(organs or {})
-
         self.started_at = time.time()
         self.last_event = None
         self.running = False
@@ -52,12 +47,23 @@ class JarvisCore:
         if self.running:
             return
         self.running = True
+        brain = self.organs.get("brain")
+        brain_start = getattr(brain, "start", None)
+        if callable(brain_start):
+            brain_start()
         self._set_state(mode="ACTIVE", learning_state="IDLE")
         self._publish("JARVIS_STARTED", {"version": self.VERSION, "timestamp": time.time()})
 
     def stop(self) -> None:
         if not self.running:
             return
+        brain = self.organs.get("brain")
+        brain_stop = getattr(brain, "stop", None)
+        if callable(brain_stop):
+            try:
+                brain_stop()
+            except Exception as exc:
+                print(f"[JarvisCore Brain Stop Error] {exc}")
         self.running = False
         self._set_state(mode="STOPPED")
         self._publish("JARVIS_STOPPED", {"timestamp": time.time()})

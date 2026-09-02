@@ -57,15 +57,27 @@ def test_runtime_integration() -> None:
     test_semantic_layer_is_authoritative_and_not_legacy_double_parsed()
 
 
+def test_p2_p3_runtime() -> None:
+    from .test_p2_p3_runtime import (
+        test_p2_router_consumes_cognition_contract,
+        test_p3_normal_turn_reaches_async_learning_queue,
+    )
+    test_p2_router_consumes_cognition_contract()
+    test_p3_normal_turn_reaches_async_learning_queue()
+
+
 def main() -> None:
     test_registry_is_complete()
     test_representative_pipeline()
     test_invalid_payload_is_rejected()
     test_runtime_integration()
+    test_p2_p3_runtime()
     print(f"PASS: {len(CONTRACTS)} JARVIS input/output contracts validated")
     print("PASS: runtime perception -> semantic_understanding -> cognition integration validated")
     print("PASS: invalid payload rejection validated")
     print("PASS: Semantic Understanding is authoritative; legacy double-parsing is absent")
+    print("PASS: P2 Cognition Router consumes canonical cognition.input")
+    print("PASS: P3 normal think_and_respond reaches AsyncLearningQueue")
 
 
 if __name__ == "__main__":
