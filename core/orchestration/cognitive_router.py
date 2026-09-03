@@ -27,9 +27,9 @@ class CognitiveDecision:
 class CognitiveRouter:
     """Evidence-driven route authority. It consumes Cognition output only."""
 
-    VERSION = "0.7.1"
-    EXECUTABLE_MODES = frozenset({"goal", "tool", "hybrid", "llm"})
-    LEGACY_NON_EXECUTABLE_MODES = frozenset({"known", "native"})
+    VERSION = "0.8.0"
+    EXECUTABLE_MODES = frozenset({"goal", "native", "hybrid", "llm"})
+    LEGACY_NON_EXECUTABLE_MODES = frozenset({"known", "tool"})
 
     def __init__(self, minimum_confidence: Optional[float] = None) -> None:
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -70,14 +70,12 @@ class CognitiveRouter:
         perception: Optional[Mapping[str, Any]] = None,
         explicit_intent: Optional[Mapping[str, Any]] = None,
     ) -> CognitiveDecision:
-        """Choose an executable mode from canonical Cognition data.
+        """Choose the canonical executable Brain route from Cognition evidence.
 
-        The router is the route authority. Only modes in EXECUTABLE_MODES may
-        cross the Router -> Brain boundary. Legacy labels such as ``known``
-        and ``native`` are not execution modes and therefore cannot authorize
-        an LLM or native action directly. A legacy ``known`` request is
-        normalized to the language-cognition route rather than leaking an
-        unexecutable route into Brain.
+        NATIVE is the canonical route for an available organism capability.
+        Legacy labels are accepted only as input compatibility labels and are
+        normalized to NATIVE when a usable capability exists; otherwise the
+        router falls back to LLM. The Router never emits an unexecutable route.
         """
         if cognition_input is not None:
             c = dict(cognition_input)
@@ -145,7 +143,7 @@ class CognitiveRouter:
                 return CognitiveDecision("hybrid", confidence, "Cognition selected hybrid execution with an available native capability.", evidence, True)
             return CognitiveDecision("llm", confidence, "Hybrid was requested but no usable native capability is available; using LLM cognition.", evidence, True)
         if usable and skill_count:
-            return CognitiveDecision("tool", confidence, "Cognition identified a usable organism capability.", evidence, False)
+            return CognitiveDecision("native", confidence, "Cognition identified a usable organism capability; NATIVE is the canonical execution route.", evidence, False)
         if usable and requested_mode in self.LEGACY_NON_EXECUTABLE_MODES:
-            return CognitiveDecision("llm", confidence, "Legacy route label is not an executable Brain mode; normalized to language cognition.", evidence, True)
+            return CognitiveDecision("llm", confidence, "No usable native capability is available; LLM is the genuine fallback route.", evidence, True)
         return CognitiveDecision("llm", confidence, "Cognition requires language cognition for this turn; no executable native capability was selected.", evidence, True)

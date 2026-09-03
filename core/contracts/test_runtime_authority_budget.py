@@ -1,4 +1,4 @@
-"""Runtime regression checks for Router authority, LLM budget and live validation trace."""
+"""Runtime regression checks for native-first Router authority and LLM budget."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Any
 
 from ..contracts.validator import begin_validation_trace, get_validation_trace, validate_input
 from ..orchestration.cognitive_router import CognitiveRouter
-from ..orchestration.llm_bridge import CognitiveBudgetExceeded, HybridLLMBridge
+from ..orchestration.llm_bridge import CognitiveBudgetExceeded, CognitiveBudgeter, HybridLLMBridge
 
 
 class _FakeLocal:
@@ -18,24 +18,43 @@ class _FakeLocal:
         return f"reply-{self.calls}"
 
 
-def _cognition(memory_count: int = 3, knowledge_count: int = 0) -> dict[str, Any]:
+def _cognition(mode: str = "", skill: str | None = None) -> dict[str, Any]:
+    intent = {"name": "statement", "confidence": 0.9}
+    if mode:
+        intent["execution_mode"] = mode
+    if skill:
+        intent["skill"] = skill
     return {
         "semantic": {
             "normalized_text": "hello Jarvis",
-            "intent": {"name": "statement", "confidence": 0.9},
+            "intent": intent,
             "entities": [], "relations": [], "events": [], "references": [],
             "confidence": 0.9, "provenance": {"source": "native"},
             "inferences": [], "unknowns": [],
         },
-        "memory": {"recent_experiences": [{} for _ in range(memory_count)]},
-        "knowledge": {"relevant_knowledge": [{} for _ in range(knowledge_count)]},
-        "goals": [], "state": {}, "capabilities": {"skills": {}}, "experience": [],
+        "memory": {"recent_experiences": [{} for _ in range(3)]},
+        "knowledge": {"relevant_knowledge": []},
+        "goals": [], "state": {}, "capabilities": {"skills": {skill: {}} if skill else {}}, "experience": [],
     }
 
 
-def test_router_does_not_emit_unexecutable_known_route() -> None:
+def test_router_emits_canonical_native_for_usable_capability() -> None:
     router = CognitiveRouter(minimum_confidence=0.6)
-    decision = router.decide(user_input="hello Jarvis", cognition_input=_cognition(memory_count=3))
+    decision = router.decide(user_input="hello Jarvis", cognition_input=_cognition(mode="native", skill="clock"))
+    assert decision.mode == "native"
+    assert decision.llm_required is False
+
+
+def test_legacy_known_with_capability_does_not_force_llm() -> None:
+    router = CognitiveRouter(minimum_confidence=0.6)
+    decision = router.decide(user_input="hello Jarvis", cognition_input=_cognition(mode="known", skill="clock"))
+    assert decision.mode == "native"
+    assert decision.llm_required is False
+
+
+def test_native_without_capability_is_genuine_llm_fallback() -> None:
+    router = CognitiveRouter(minimum_confidence=0.6)
+    decision = router.decide(user_input="hello Jarvis", cognition_input=_cognition(mode="native"))
     assert decision.mode == "llm"
     assert decision.llm_required is True
 
@@ -64,14 +83,28 @@ def test_llm_budget_is_hard_per_turn() -> None:
     assert fake.calls == 1
 
 
+def test_context_budget_bounds_large_payload() -> None:
+    budgeter = CognitiveBudgeter(max_context_tokens=4096)
+    system = "system evidence " * 2000
+    user = "retrieved memory knowledge " * 20000
+    bounded_system, bounded_user = budgeter.optimize_payload(system, user, max_tokens=768)
+    assert budgeter.estimate_tokens(bounded_system) + budgeter.estimate_tokens(bounded_user) <= 4096 - 768 - 128
+    assert len(bounded_user) < len(user)
+
+
 def main() -> None:
-    test_router_does_not_emit_unexecutable_known_route()
+    test_router_emits_canonical_native_for_usable_capability()
+    test_legacy_known_with_capability_does_not_force_llm()
+    test_native_without_capability_is_genuine_llm_fallback()
     test_validator_records_real_runtime_events()
     test_llm_budget_is_hard_per_turn()
-    print("PASS: Router emits only executable runtime routes")
-    print("PASS: central validator records real boundary validation events")
+    test_context_budget_bounds_large_payload()
+    print("PASS: canonical NATIVE route is executable")
+    print("PASS: legacy known/native labels do not force LLM when native capability exists")
+    print("PASS: LLM remains genuine fallback when native capability is unavailable")
+    print("PASS: central validator records real runtime events")
     print("PASS: LLM call/output budget is enforced per turn")
-    print("PASS: Router authority + LLM budget regression checks completed")
+    print("PASS: LLM system+user context is bounded within 4096-token budget")
 
 
 if __name__ == "__main__":

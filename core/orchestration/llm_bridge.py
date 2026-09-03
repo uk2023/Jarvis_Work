@@ -32,9 +32,10 @@ class CognitiveBudgetExceeded(RuntimeError):
 
 
 class CognitiveBudgeter:
-    """Working-memory/context budgeter for the local model."""
-    def __init__(self, max_context_tokens: int = 4096):
-        self.max_context_tokens = max_context_tokens
+    """Hard working-memory/context budgeter for every LLM backend."""
+    def __init__(self, max_context_tokens: int = 4096, safety_tokens: int = 128):
+        self.max_context_tokens = max(256, int(max_context_tokens))
+        self.safety_tokens = max(0, int(safety_tokens))
 
     @staticmethod
     def estimate_tokens(text: str) -> int:
@@ -42,26 +43,51 @@ class CognitiveBudgeter:
             return 0
         return int(len(text.split()) * 1.3) + 4
 
+    @staticmethod
+    def _trim_to_tokens(text: str, token_budget: int) -> str:
+        if not text or token_budget <= 0:
+            return ""
+        words = text.split()
+        if not words:
+            return ""
+        # Keep the estimate conservative; the model context must never be
+        # allowed to grow merely because the caller supplied a huge payload.
+        max_words = max(1, int(max(0, token_budget - 4) / 1.3))
+        if len(words) <= max_words:
+            return text
+        return " ".join(words[:max_words]) + "\n[context truncated by 4096-token budget]"
+
     def optimize_payload(
         self, system_prompt: str, user_input: str, max_tokens: int = 512
     ) -> tuple[str, str]:
-        budget = self.max_context_tokens - max_tokens - 128
-        sys_tokens = self.estimate_tokens(system_prompt)
-        usr_tokens = self.estimate_tokens(user_input)
-        if (sys_tokens + usr_tokens) <= budget:
-            return system_prompt, user_input
+        output_budget = max(1, int(max_tokens))
+        input_budget = self.max_context_tokens - output_budget - self.safety_tokens
+        if input_budget <= 0:
+            raise CognitiveBudgetExceeded("No input context budget remains for this LLM call")
 
-        lines = system_prompt.split("\n")
-        trimmed_lines = []
-        current_tokens = usr_tokens
-        for line in lines:
-            line_tokens = self.estimate_tokens(line)
-            if current_tokens + line_tokens <= budget:
-                trimmed_lines.append(line)
-                current_tokens += line_tokens
-            else:
-                break
-        return "\n".join(trimmed_lines), user_input
+        # Bound BOTH messages. Previously only the system prompt was trimmed,
+        # leaving a giant user/retrieval payload capable of overflowing n_ctx.
+        sys_tokens = self.estimate_tokens(system_prompt)
+        usr_budget = max(1, input_budget - min(sys_tokens, input_budget // 2))
+        bounded_user = self._trim_to_tokens(user_input, usr_budget)
+        remaining_for_system = max(0, input_budget - self.estimate_tokens(bounded_user))
+        bounded_system = self._trim_to_tokens(system_prompt, remaining_for_system)
+
+        # Final conservative pass guarantees the estimator is within the input
+        # budget even after the truncation marker is appended.
+        total = self.estimate_tokens(bounded_system) + self.estimate_tokens(bounded_user)
+        if total > input_budget:
+            bounded_user = self._trim_to_tokens(
+                bounded_user,
+                max(1, input_budget - self.estimate_tokens(bounded_system)),
+            )
+            total = self.estimate_tokens(bounded_system) + self.estimate_tokens(bounded_user)
+        if total > input_budget:
+            bounded_system = self._trim_to_tokens(
+                bounded_system,
+                max(1, input_budget - self.estimate_tokens(bounded_user)),
+            )
+        return bounded_system, bounded_user
 
 
 class LlamaCppEngine:
@@ -92,9 +118,7 @@ class LlamaCppEngine:
         print(f"[JARVIS LLM] Offline model loaded (n_ctx={n_ctx}).")
 
     def generate(self, system_prompt: str, user_input: str, max_tokens: int = 512, temperature: float = 0.7) -> str:
-        opt_system, opt_user = self.budgeter.optimize_payload(
-            system_prompt, user_input, max_tokens=max_tokens
-        )
+        opt_system, opt_user = self.budgeter.optimize_payload(system_prompt, user_input, max_tokens=max_tokens)
         messages = [
             {"role": "system", "content": opt_system},
             {"role": "user", "content": opt_user},
@@ -207,6 +231,7 @@ class HybridLLMBridge:
         self._turn_calls = 0
         self._turn_reserved_tokens = 0
         self._turn_active = False
+        self._context_budgeter = CognitiveBudgeter(max_context_tokens=n_ctx)
         self._load_budget_policy()
 
     def _load_budget_policy(self) -> None:
@@ -311,6 +336,9 @@ class HybridLLMBridge:
         **kwargs,
     ) -> str:
         reserved_tokens = self._reserve_budget(max_tokens)
+        bounded_system, bounded_user = self._context_budgeter.optimize_payload(
+            system_prompt, user_input, max_tokens=reserved_tokens
+        )
         online = self._is_online()
         have_groq_key = bool(os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY"))
 
@@ -318,8 +346,8 @@ class HybridLLMBridge:
             try:
                 engine = self._get_groq()
                 result = engine.generate(
-                    system_prompt=system_prompt,
-                    user_input=user_input,
+                    system_prompt=bounded_system,
+                    user_input=bounded_user,
                     max_tokens=reserved_tokens,
                     temperature=temperature,
                 )
@@ -332,8 +360,8 @@ class HybridLLMBridge:
         try:
             engine = self._get_local()
             result = engine.generate(
-                system_prompt=system_prompt,
-                user_input=user_input,
+                system_prompt=bounded_system,
+                user_input=bounded_user,
                 max_tokens=reserved_tokens,
                 temperature=temperature,
             )
