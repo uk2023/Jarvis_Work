@@ -39,12 +39,31 @@ class CognitiveBudgeter:
         return int(len(text.split()) * 1.3) + 4
     @staticmethod
     def _trim_to_tokens(text: str, token_budget: int) -> str:
-        if not text or token_budget <= 0: return ""
+        if not text or token_budget <= 0:
+            return ""
         words = text.split()
-        if not words: return ""
-        max_words = max(1, int(max(0, token_budget - 4) / 1.3))
-        if len(words) <= max_words: return text
-        return " ".join(words[:max_words]) + "\n[context truncated by 4096-token budget]"
+        if not words:
+            return ""
+
+        marker = "\n[context truncated by 4096-token budget]"
+
+        def fits(candidate: str) -> bool:
+            return CognitiveBudgeter.estimate_tokens(candidate) <= token_budget
+
+        if fits(text):
+            return text
+
+        lo, hi = 0, len(words)
+        best = ""
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            candidate = " ".join(words[:mid]) + marker
+            if fits(candidate):
+                best = candidate
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        return best
     def optimize_payload(self, system_prompt: str, user_input: str, max_tokens: int = 512) -> tuple[str, str]:
         output_budget = max(1, int(max_tokens)); input_budget = self.max_context_tokens - output_budget - self.safety_tokens
         if input_budget <= 0: raise CognitiveBudgetExceeded("No input context budget remains for this LLM call")
@@ -55,10 +74,36 @@ class CognitiveBudgeter:
         bounded_system = self._trim_to_tokens(system_prompt, remaining_for_system)
         total = self.estimate_tokens(bounded_system) + self.estimate_tokens(bounded_user)
         if total > input_budget:
-            bounded_user = self._trim_to_tokens(bounded_user, max(1, input_budget - self.estimate_tokens(bounded_system)))
+            bounded_user = self._trim_to_tokens(
+                bounded_user,
+                max(0, input_budget - self.estimate_tokens(bounded_system)),
+            )
             total = self.estimate_tokens(bounded_system) + self.estimate_tokens(bounded_user)
+
         if total > input_budget:
-            bounded_system = self._trim_to_tokens(bounded_system, max(1, input_budget - self.estimate_tokens(bounded_user)))
+            bounded_system = self._trim_to_tokens(
+                bounded_system,
+                max(0, input_budget - self.estimate_tokens(bounded_user)),
+            )
+            total = self.estimate_tokens(bounded_system) + self.estimate_tokens(bounded_user)
+
+        # Absolute final guard: never return a payload whose estimator
+        # exceeds the input budget.
+        while total > input_budget and bounded_user:
+            words = bounded_user.split()
+            bounded_user = " ".join(words[:-1])
+            total = self.estimate_tokens(bounded_system) + self.estimate_tokens(bounded_user)
+
+        while total > input_budget and bounded_system:
+            words = bounded_system.split()
+            bounded_system = " ".join(words[:-1])
+            total = self.estimate_tokens(bounded_system) + self.estimate_tokens(bounded_user)
+
+        if total > input_budget:
+            raise CognitiveBudgetExceeded(
+                f"Unable to fit LLM input within {input_budget} tokens"
+            )
+
         return bounded_system, bounded_user
 
 class LlamaCppEngine:

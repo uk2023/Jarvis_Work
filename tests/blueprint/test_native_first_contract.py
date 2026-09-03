@@ -21,7 +21,7 @@ class NativeFirstContractTests(unittest.TestCase):
         self.assertFalse(decision.llm_required)
 
     def test_blueprint_brain_exposes_only_executable_canonical_routes(self):
-        self.assertEqual(BlueprintBrain._SUPPORTED_ROUTES, frozenset({"goal", "native", "hybrid", "llm"}))
+        self.assertEqual(BlueprintBrain._SUPPORTED_ROUTES, frozenset({"goal", "native", "hybrid", "llm", "clarify"}))
 
     def test_bridge_generate_is_budgeted(self):
         bridge = HybridLLMBridge(force_mode="offline")

@@ -135,7 +135,13 @@ class CognitiveRouter:
         }
         usable = bool(intent) and confidence >= self.minimum_confidence
         if usable and intent.get("requires_confirmation") is True:
-            return CognitiveDecision("llm", confidence, "Cognition requires confirmation; Brain must use the language cognition path to clarify before action.", evidence, True)
+            return CognitiveDecision(
+                "clarify",
+                confidence,
+                "Cognition requires confirmation before native execution.",
+                evidence,
+                False,
+            )
         if usable and perceived_goal:
             return CognitiveDecision("goal", confidence, "Cognition identified an explicit user goal.", evidence, False)
         if usable and requested_mode == "hybrid":

@@ -20,7 +20,7 @@ class BlueprintBrain(Brain):
     """
 
     VERSION = "1.4.0"
-    _SUPPORTED_ROUTES = frozenset({"goal", "native", "hybrid", "llm"})
+    _SUPPORTED_ROUTES = frozenset({"goal", "native", "hybrid", "llm", "clarify"})
 
     _SEMANTIC_FALLBACK_PROMPT = (
         "You are JARVIS semantic understanding fallback. Return ONLY JSON. "

@@ -86,7 +86,7 @@ class BlueprintRouterTests(unittest.TestCase):
             perception={"user_input": "run ping", "confidence": .95, "intent": {"skill": "ping"}},
             skills={"ping": object()},
         )
-        self.assertEqual(d.mode, "tool")
+        self.assertEqual(d.mode, "native")
         self.assertFalse(d.llm_required)
 
     def test_hybrid_requires_explicit_hybrid_request(self):

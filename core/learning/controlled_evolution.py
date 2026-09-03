@@ -48,6 +48,15 @@ class ControlledEvolutionEngine(EvolutionEngine):
         proposal["revision_id"] = result["revision_id"]
         proposal["revision"] = result["revision"]
         applied = super().apply(proposal_id)
+        if not isinstance(applied, dict):
+            applied = {"status": "APPLIED", "result": applied}
+        applied.update({
+            "revision_id": result["revision_id"],
+            "revision": result["revision"],
+            "next_cycle_ready": result["next_cycle_ready"],
+            "change_record": result["change_record"],
+            "execution": result,
+        })
         self.last_execution = {"proposal_id": proposal_id, "target": target, "status": "APPLIED", "result": result}
         self._emit("EVOLUTION_EXECUTED", self.last_execution)
         return applied
