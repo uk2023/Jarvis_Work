@@ -112,15 +112,16 @@ class SemanticLearningBoundary:
             return 0.0
 
     def needs_fallback(self, result: Mapping[str, Any]) -> bool:
-        """Fallback at or below the native confidence boundary.
-
-        The native engine intentionally uses the threshold value for an
-        unclassified statement. Treating equality as native made exactly
-        those unknown/ambiguous statements bypass the fallback. The boundary
-        is therefore inclusive: unknowns OR confidence <= threshold.
-        """
+        """Fallback at or below the native confidence boundary."""
         unknowns = result.get("unknowns")
         return bool(unknowns) or self._confidence(result) <= self.native_confidence_threshold
+
+    @staticmethod
+    def _is_greeting(text: str) -> bool:
+        return bool(re.fullmatch(
+            r"(?:hi|hello|hey|namaste|hola)(?:\s+(?:jarvis|there))?[.!?]*",
+            str(text or "").strip().lower(),
+        ))
 
     def apply_learned_capability(self, text: str) -> Optional[Dict[str, Any]]:
         match = self.registry.match(text)
@@ -139,6 +140,20 @@ class SemanticLearningBoundary:
 
     def resolve(self, text: str, native_result: Mapping[str, Any], *,
                 context: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+        # Greetings are deterministic and must never spend an LLM call merely
+        # to classify a greeting. This also prevents malformed fallback JSON
+        # from blocking the first user turn.
+        if self._is_greeting(text):
+            semantic = dict(native_result)
+            semantic["intent"] = {
+                "name": "greeting",
+                "confidence": 0.99,
+                "source": "symbolic_parser",
+            }
+            semantic["confidence"] = max(0.99, self._confidence(semantic))
+            semantic["unknowns"] = []
+            return {"semantic": semantic, "source": "native", "fallback_used": False, "candidate": None}
+
         # Existing native understanding remains authoritative when confident.
         if not self.needs_fallback(native_result):
             return {"semantic": dict(native_result), "source": "native", "fallback_used": False, "candidate": None}
