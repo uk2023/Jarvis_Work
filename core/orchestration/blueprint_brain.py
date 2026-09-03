@@ -49,6 +49,8 @@ class BlueprintBrain(Brain):
         self.last_memory_output = None
         self.last_self_evaluation_input = None
         self.last_self_evaluation_output = None
+        self.last_evolution_input = None
+        self.last_evolution_output = None
         self.last_runtime_contract_trace: list[dict[str, Any]] = []
         self.last_route_authority: Dict[str, Any] = {}
         self._configure_semantic_fallback()
@@ -187,6 +189,59 @@ class BlueprintBrain(Brain):
             self.last_learning_output = validate_output("learning", {"learning_result": learning_result, "knowledge_updates": updates}); self.last_contracts["learning.input"] = self.last_learning_input; self.last_contracts["learning.output"] = self.last_learning_output
             if isinstance(evaluation, dict):
                 self.last_self_evaluation_input = validate_input("self_evaluation", {"experience": dict(experience_payload or {})}); self.last_self_evaluation_output = validate_output("self_evaluation", {"evaluation": evaluation}); self.last_contracts["self_evaluation.input"] = self.last_self_evaluation_input; self.last_contracts["self_evaluation.output"] = self.last_self_evaluation_output
+
+            # Controlled evolution boundary: evaluation produces a proposal only.
+            # Nothing is applied automatically; ControlledEvolutionEngine keeps
+            # validation/approval/application as separate explicit operations.
+            evolution = self.evolution
+            if isinstance(evaluation, dict) and evolution is not None:
+                should_propose = bool(
+                    evaluation.get("errors")
+                    or evaluation.get("evolution_signal")
+                    or learning_result.get("knowledge") is not None
+                )
+                if should_propose:
+                    target = str(
+                        evaluation.get("evolution_target")
+                        or ("knowledge_policy" if learning_result.get("knowledge") is not None else "runtime_behavior")
+                    )
+                    reason = str(
+                        evaluation.get("evolution_reason")
+                        or "Create a controlled improvement proposal from the completed self-evaluation."
+                    )
+                    try:
+                        proposal = evolution.propose(evaluation=evaluation, target=target, reason=reason)
+                        evolution_input = validate_input("evolution", {"evolution_proposal": dict(proposal)})
+                        self.last_evolution_input = evolution_input
+                        change_record = {
+                            "type": "EVOLUTION_PROPOSAL",
+                            "proposal_id": proposal.get("id"),
+                            "target": proposal.get("target"),
+                            "status": proposal.get("status", "PROPOSED"),
+                            "applied": False,
+                        }
+                        evolution_output = validate_output(
+                            "evolution",
+                            {
+                                "updated_capabilities": {
+                                    "status": proposal.get("status", "PROPOSED"),
+                                    "proposal_id": proposal.get("id"),
+                                    "target": proposal.get("target"),
+                                },
+                                "change_record": change_record,
+                            },
+                        )
+                        self.last_evolution_output = evolution_output
+                        self.last_contracts["evolution.input"] = evolution_input
+                        self.last_contracts["evolution.output"] = evolution_output
+                        result["evolution"] = {"proposal": proposal, "output": evolution_output}
+                    except Exception as evolution_error:
+                        self.last_evolution_input = None
+                        self.last_evolution_output = None
+                        self.last_contracts.pop("evolution.input", None)
+                        self.last_contracts.pop("evolution.output", None)
+                        result["evolution"] = {"status": "FAILED", "error": str(evolution_error)}
+
             self.last_memory_input = validate_input("memory", {"learning_result": learning_result}); memory_context = {}
             if self.memory is not None:
                 stats = getattr(self.memory, "statistics", None)
