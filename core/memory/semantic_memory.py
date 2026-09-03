@@ -9,6 +9,12 @@ import uuid
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Union
 
+# Mobile/PRoot safety: prevent native numerical libraries from creating a
+# large implicit worker pool. Explicit ONNX session options below provide the
+# actual per-session bound.
+for _name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    os.environ.setdefault(_name, "1")
+
 import faiss
 import networkx as nx
 import numpy as np
@@ -25,7 +31,16 @@ class FastONNXEmbedder:
         self.vector_dim = 384
         if not os.path.exists(model_path) or not os.path.exists(tokenizer_path):
             print(f"[ONNXEmbedder] Warning: {model_path} or {tokenizer_path} not found!")
-        self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        session_options = ort.SessionOptions()
+        session_options.intra_op_num_threads = 1
+        session_options.inter_op_num_threads = 1
+        session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        self.session = ort.InferenceSession(
+            model_path,
+            sess_options=session_options,
+            providers=["CPUExecutionProvider"],
+        )
         self.tokenizer = Tokenizer.from_file(tokenizer_path)
         self.tokenizer.enable_padding(length=128, pad_id=0, pad_token="[PAD]")
         self.tokenizer.enable_truncation(max_length=128)

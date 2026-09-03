@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import os
+import threading
 from typing import Optional
+
+# Mobile/PRoot safety: keep native numerical libraries from creating a large
+# worker pool before ONNX Runtime receives its explicit session options.
+for _name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    os.environ.setdefault(_name, "1")
 
 from .jarvis_core import JarvisCore
 from .internal_state import InternalState
@@ -90,6 +96,9 @@ def create_jarvis(identity=None, personality=None, values=None,
         state=state, event_bus=events, store=memory.store, executor=brain.execute_autonomous_step,
     )
     runtime_monitor = RuntimeMonitor()
+    idle_lock = threading.Lock()
+    last_idle_run = [0.0]
+    idle_cooldown = max(30.0, float(os.getenv("JARVIS_IDLE_COOLDOWN", "30")))
 
     def _on_heartbeat(event) -> None:
         payload = getattr(event, "payload", {}) or {}
@@ -105,7 +114,11 @@ def create_jarvis(identity=None, personality=None, values=None,
             "state": state,
         })
         if payload.get("idle"):
-            idle_loop.step()
+            now = __import__("time").time()
+            with idle_lock:
+                if now - last_idle_run[0] >= idle_cooldown:
+                    last_idle_run[0] = now
+                    idle_loop.step()
 
     events.subscribe("HEARTBEAT", _on_heartbeat)
 
