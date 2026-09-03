@@ -29,6 +29,7 @@ from ..skills.skill_registry import SkillRegistry
 from ..skills.skill_executor import SkillExecutor
 from ..skills.skill_learner import SkillLearner
 from ..cognition.semantic_understanding import SemanticUnderstanding
+from ..runtime.runtime_monitor import RuntimeMonitor
 
 
 def create_jarvis(identity=None, personality=None, values=None,
@@ -56,12 +57,8 @@ def create_jarvis(identity=None, personality=None, values=None,
     goal_manager = GoalManager(store=memory.store)
     curiosity = Curiosity()
     scheduler = Scheduler()
-    # JARVIS_LLM_MODE=offline forces the local GGUF model only, skipping
-    # Groq entirely (useful when Groq is slow/unreachable but the local
-    # model is already loaded and verified -- avoids a multi-key,
-    # ~20s-per-key wait before falling back). JARVIS_LLM_MODE=online
-    # forces Groq only. Unset = auto-detect (existing behaviour).
-    llm_bridge = HybridLLMBridge(force_mode=os.getenv("JARVIS_LLM_MODE") or None)
+    llm_mode = os.getenv("JARVIS_LLM_MODE") or "online"
+    llm_bridge = HybridLLMBridge(force_mode=llm_mode)
     planner = Planner(llm_bridge=llm_bridge)
     skill_executor = SkillExecutor(skill_registry)
     cognitive_router = CognitiveRouter()
@@ -92,9 +89,21 @@ def create_jarvis(identity=None, personality=None, values=None,
         goal_manager=goal_manager, curiosity=curiosity, planner=planner, scheduler=scheduler,
         state=state, event_bus=events, store=memory.store, executor=brain.execute_autonomous_step,
     )
+    runtime_monitor = RuntimeMonitor()
 
     def _on_heartbeat(event) -> None:
         payload = getattr(event, "payload", {}) or {}
+        runtime_monitor.write_snapshot(jarvis=None, organs={
+            "heartbeat": heartbeat,
+            "llm_bridge": llm_bridge,
+            "memory": memory,
+            "learning": learning,
+            "evaluator": evaluator,
+            "knowledge_builder": knowledge_builder,
+            "evolution": evolution,
+            "idle_loop": idle_loop,
+            "state": state,
+        })
         if payload.get("idle"):
             idle_loop.step()
 
@@ -111,10 +120,12 @@ def create_jarvis(identity=None, personality=None, values=None,
         "brain": brain, "llm_bridge": llm_bridge,
         "semantic_understanding": semantic_understanding,
         "runtime_evolution_adapter": runtime_evolution_adapter,
+        "runtime_monitor": runtime_monitor,
     }
     jarvis = JarvisCore(identity=identity, personality=personality, values=values,
                         state=state, event_bus=events, heartbeat=heartbeat, organs=organs)
     jarvis.idle_loop = idle_loop
+    runtime_monitor.bind_jarvis(jarvis)
     return jarvis
 
 
