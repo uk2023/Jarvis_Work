@@ -603,12 +603,25 @@ def main():
         console.print("[cyan]Connecting shared offline LLM bridge to Core Brain + Perception...[/cyan]")
         try:
             bridge = _connect_llm_to_brain(brain)
-            console.print("[cyan]Loading offline model into RAM (this can take a minute)...[/cyan]")
-            if bridge.verify_offline_ready():
-                provider_count = len(getattr(getattr(brain, "perception", None), "providers", []) or [])
-                console.print(f"[bold green]Neural Bridge Online -- offline model loaded and verified. Perception providers={provider_count}.[/bold green]\n")
+            # Do NOT eagerly force-load the local GGUF model here. On
+            # constrained devices (phone/Termux) this was loading a
+            # multi-GB model into RAM on every startup, even for
+            # sessions that only ever hit native routes (greetings,
+            # status, skills). HybridLLMBridge._get_local() already
+            # lazy-loads the model on its own the first time it's
+            # actually needed (Groq unavailable + a route needs LLM).
+            # Set JARVIS_PRELOAD_OFFLINE=1 to restore the old eager
+            # behaviour (e.g. if you want the loading delay up front
+            # instead of on first LLM-needing turn).
+            provider_count = len(getattr(getattr(brain, "perception", None), "providers", []) or [])
+            if os.getenv("JARVIS_PRELOAD_OFFLINE") == "1":
+                console.print("[cyan]Loading offline model into RAM (this can take a minute)...[/cyan]")
+                if bridge.verify_offline_ready():
+                    console.print(f"[bold green]Neural Bridge Online -- offline model loaded and verified. Perception providers={provider_count}.[/bold green]\n")
+                else:
+                    console.print(f"[bold red]Neural Bridge NOT ready -- model failed to load: {bridge.last_error}[/bold red]\n")
             else:
-                console.print(f"[bold red]Neural Bridge NOT ready -- model failed to load: {bridge.last_error}[/bold red]\n")
+                console.print(f"[bold green]Neural Bridge attached -- offline model loads on first LLM-needing turn. Perception providers={provider_count}.[/bold green]\n")
         except Exception as exc:
             console.print(f"[bold red]Neural Bridge Connection Failure: {exc}[/bold red]\n")
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from .jarvis_core import JarvisCore
@@ -10,7 +11,7 @@ from .lifecycle import Lifecycle
 from core.orchestration.blueprint_brain import BlueprintBrain
 from core.orchestration.llm_bridge import HybridLLMBridge
 from core.orchestration.cognitive_router import CognitiveRouter
-from core.orchestration.perception import PerceptionEngine
+from core.orchestration.perception import PerceptionEngine, NativePerceptionProvider
 from ..memory.memory_manager import MemoryManager
 from ..memory.memory_consolidator import MemoryConsolidator
 from ..learning.experience_engine import ExperienceEngine
@@ -55,11 +56,16 @@ def create_jarvis(identity=None, personality=None, values=None,
     goal_manager = GoalManager(store=memory.store)
     curiosity = Curiosity()
     scheduler = Scheduler()
-    llm_bridge = HybridLLMBridge()
+    # JARVIS_LLM_MODE=offline forces the local GGUF model only, skipping
+    # Groq entirely (useful when Groq is slow/unreachable but the local
+    # model is already loaded and verified -- avoids a multi-key,
+    # ~20s-per-key wait before falling back). JARVIS_LLM_MODE=online
+    # forces Groq only. Unset = auto-detect (existing behaviour).
+    llm_bridge = HybridLLMBridge(force_mode=os.getenv("JARVIS_LLM_MODE") or None)
     planner = Planner(llm_bridge=llm_bridge)
     skill_executor = SkillExecutor(skill_registry)
     cognitive_router = CognitiveRouter()
-    perception = PerceptionEngine(state=state)
+    perception = PerceptionEngine(state=state, providers=[NativePerceptionProvider()])
     semantic_understanding = SemanticUnderstanding(semantic_memory=memory.semantic)
 
     brain = BlueprintBrain(

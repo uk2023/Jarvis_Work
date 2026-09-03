@@ -54,12 +54,34 @@ class IdleLoop:
         goals = self.goal_manager.pending()
         candidates = self.curiosity.candidates(state=self.state, goals=goals)
 
+        # Dedup curiosity-origin candidates against already-pending goals
+        # with the same reason text. Without this, an idle organism whose
+        # uncertainty (or another recurring signal) stays elevated will
+        # re-propose the *same* candidate on every heartbeat tick forever
+        # -- each one a brand-new goal, and each goal add/update triggers
+        # a full re-serialize + SQLite write of the entire goal list
+        # (GoalManager._save). That is an unbounded, un-throttled write
+        # loop running every couple of seconds in the background, which
+        # is real, measurable CPU/disk/battery drain on a phone even
+        # while the user isn't interacting at all. Blueprint section 24
+        # requires idle learning to use controlled boundaries; an
+        # un-deduplicated proposal loop is exactly the uncontrolled case
+        # that rule exists to prevent.
+        existing_reasons = {
+            str(g.get("text", "")).strip().lower()
+            for g in goals
+            if g.get("origin") == "curiosity"
+        }
         for candidate in candidates:
+            reason_key = str(candidate.get("reason", "")).strip().lower()
+            if reason_key and reason_key in existing_reasons:
+                continue
             self.goal_manager.add(
                 text=candidate["reason"],
                 priority=candidate.get("priority", 0.5),
                 origin="curiosity",
             )
+            existing_reasons.add(reason_key)
 
         target = self.goal_manager.next_goal()
         if target is None:

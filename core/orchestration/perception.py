@@ -65,6 +65,44 @@ class PerceptionProvider(Protocol):
         ...
 
 
+class NativePerceptionProvider:
+    """Deterministic Level-0 perception (blueprint section 4: LEVEL 0 —
+    deterministic normalization, tried before any LLM/SLM escalation).
+
+    Handles a small set of unambiguous conversational patterns (greetings,
+    status checks, thanks, farewells) without any LLM call. Returns None
+    for anything it doesn't confidently recognize, so PerceptionEngine
+    falls through to the next provider (LLM) -- this is a genuine
+    escalation cascade, not a replacement for LLM perception.
+    """
+    name = "native"
+
+    _PATTERNS: tuple = (
+        ("greeting", re.compile(r"^(hi|hello|hey|hlo|yo|namaste|namaskar)\b", re.I)),
+        ("status_check", re.compile(r"^(status|health|ping|are you (online|there|up)|you there)\b", re.I)),
+        ("thanks", re.compile(r"^(thanks|thank you|shukriya|dhanyavad)\b", re.I)),
+        ("farewell", re.compile(r"^(bye|goodbye|see you|tata|good night)\b", re.I)),
+    )
+
+    def perceive(self, user_input: str, context: Optional[Mapping[str, Any]] = None) -> Optional[PerceptionResult]:
+        normalized = (user_input or "").strip()
+        if not normalized:
+            return None
+        for intent_name, pattern in self._PATTERNS:
+            if pattern.match(normalized):
+                return PerceptionResult(
+                    user_input=user_input,
+                    normalized_text=normalized,
+                    intent={"name": intent_name, "confidence": 0.95},
+                    language="unknown",
+                    confidence=0.95,
+                    uncertainty=0.05,
+                    source=self.name,
+                    reason=f"Matched deterministic pattern: {intent_name}",
+                )
+        return None
+
+
 class LLMPerceptionProvider:
     """Temporary LLM-backed perception provider while native cognition matures."""
     name = "llm"
@@ -77,13 +115,44 @@ class LLMPerceptionProvider:
         "speech_act, language, confidence, reason."
     )
 
+    # Retrieval-based context bound (blueprint Phase 4): perception runs
+    # on every single turn, so an unbounded context dict here means every
+    # message -- including a bare "hello" -- pays for the full memory/
+    # knowledge/graph payload. Cap item count and per-item length before
+    # the dict is ever stringified into the prompt, rather than relying
+    # solely on the downstream token budgeter (whose word-count estimate
+    # can diverge from the real byte size of dense/structured content).
+    _CONTEXT_MAX_ITEMS = 3
+    _CONTEXT_MAX_ITEM_CHARS = 150
+
     def __init__(self, llm_bridge: Any):
         self.llm = llm_bridge
+
+    @classmethod
+    def _bounded_context(cls, context: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+        if not context:
+            return {}
+        bounded: Dict[str, Any] = {}
+        for key, value in dict(context).items():
+            if isinstance(value, (list, tuple)):
+                items = []
+                for item in list(value)[: cls._CONTEXT_MAX_ITEMS]:
+                    text = str(item)
+                    if len(text) > cls._CONTEXT_MAX_ITEM_CHARS:
+                        text = text[: cls._CONTEXT_MAX_ITEM_CHARS] + "…"
+                    items.append(text)
+                bounded[key] = items
+            else:
+                text = str(value)
+                if len(text) > cls._CONTEXT_MAX_ITEM_CHARS:
+                    text = text[: cls._CONTEXT_MAX_ITEM_CHARS] + "…"
+                bounded[key] = text
+        return bounded
 
     def perceive(self, user_input: str, context: Optional[Mapping[str, Any]] = None) -> PerceptionResult:
         prompt = (
             f"User message: {user_input}\n"
-            f"Context: {dict(context or {})}\n"
+            f"Context: {self._bounded_context(context)}\n"
             'JSON shape: {"intent":{"name":"...","confidence":0.0},'
             '"entities":{},"goal":null,"requested_capability":null,'
             '"speech_act":null,"language":"...","confidence":0.0,"reason":"..."}'
