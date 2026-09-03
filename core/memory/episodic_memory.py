@@ -4,8 +4,68 @@ import threading
 import time
 import uuid
 
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, fields, is_dataclass
+from typing import Any, Dict, List, Optional, Set
+
+
+_SERIALIZE_MAX_DEPTH = 16
+_SERIALIZE_MAX_ITEMS = 64
+_SERIALIZE_MAX_TEXT = 512
+
+
+def _safe_serialize(value: Any, depth: int = 0, active: Optional[Set[int]] = None) -> Any:
+    """Bounded, cycle-safe serializer for runtime memory payloads."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+
+    if depth >= _SERIALIZE_MAX_DEPTH:
+        return "<max-depth>"
+
+    if active is None:
+        active = set()
+
+    value_id = id(value)
+    if value_id in active:
+        return "<cycle>"
+
+    active.add(value_id)
+    try:
+        if isinstance(value, dict):
+            result: Dict[str, Any] = {}
+            for index, (key, item) in enumerate(value.items()):
+                if index >= _SERIALIZE_MAX_ITEMS:
+                    result["<truncated>"] = f"{len(value) - _SERIALIZE_MAX_ITEMS} items"
+                    break
+                safe_key = _safe_serialize(key, depth + 1, active)
+                result[str(safe_key)] = _safe_serialize(item, depth + 1, active)
+            return result
+
+        if isinstance(value, (list, tuple)):
+            result = [_safe_serialize(item, depth + 1, active) for item in value[:_SERIALIZE_MAX_ITEMS]]
+            if len(value) > _SERIALIZE_MAX_ITEMS:
+                result.append(f"<truncated: {len(value) - _SERIALIZE_MAX_ITEMS} items>")
+            return result
+
+        if isinstance(value, (set, frozenset)):
+            items = list(value)
+            result = [_safe_serialize(item, depth + 1, active) for item in items[:_SERIALIZE_MAX_ITEMS]]
+            if len(items) > _SERIALIZE_MAX_ITEMS:
+                result.append(f"<truncated: {len(items) - _SERIALIZE_MAX_ITEMS} items>")
+            return result
+
+        if is_dataclass(value) and not isinstance(value, type):
+            return {
+                field.name: _safe_serialize(getattr(value, field.name), depth + 1, active)
+                for field in fields(value)
+            }
+
+        try:
+            text = repr(value)
+        except Exception:
+            text = f"<{type(value).__name__}>"
+        return text[:_SERIALIZE_MAX_TEXT]
+    finally:
+        active.remove(value_id)
 
 
 @dataclass
@@ -37,7 +97,19 @@ class Episode:
             self.tags = []
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        """Return a bounded, cycle-safe snapshot for runtime context."""
+        return {
+            "episode_id": self.episode_id,
+            "timestamp": self.timestamp,
+            "event_type": self.event_type,
+            "context": _safe_serialize(self.context),
+            "action": _safe_serialize(self.action),
+            "outcome": _safe_serialize(self.outcome),
+            "importance": self.importance,
+            "confidence": self.confidence,
+            "source": self.source,
+            "tags": _safe_serialize(self.tags),
+        }
 
 
 class EpisodicMemory:
