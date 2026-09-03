@@ -98,9 +98,11 @@ class LlamaCppEngine:
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model file not found at: {model_path}. Place the GGUF file in models/")
         print(f"[JARVIS LLM] Loading offline model from {model_path} ...")
-        self.llm = Llama(model_path=model_path, n_ctx=n_ctx, n_threads=n_threads, use_mlock=False, use_mmap=True, verbose=False)
-        self.budgeter = CognitiveBudgeter(max_context_tokens=n_ctx)
-        print(f"[JARVIS LLM] Offline model loaded (n_ctx={n_ctx}).")
+        safe_threads = max(1, min(int(n_threads), 2))
+        safe_ctx = max(1024, min(int(n_ctx), 2048))
+        self.llm = Llama(model_path=model_path, n_ctx=safe_ctx, n_threads=safe_threads, use_mlock=False, use_mmap=True, verbose=False)
+        self.budgeter = CognitiveBudgeter(max_context_tokens=safe_ctx)
+        print(f"[JARVIS LLM] Offline model loaded (n_ctx={safe_ctx}, n_threads={safe_threads}).")
 
     def generate(self, system_prompt: str, user_input: str, max_tokens: int = 512, temperature: float = 0.7) -> str:
         opt_system, opt_user = self.budgeter.optimize_payload(system_prompt, user_input, max_tokens=max_tokens)
@@ -269,6 +271,10 @@ class HybridLLMBridge:
         online = self._is_online()
         have_groq_key = bool(os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY"))
         allow_local_fallback = self._force_mode == "offline" or os.getenv("JARVIS_ALLOW_LOCAL_FALLBACK", "false").strip().lower() in {"1", "true", "yes", "on"}
+        # Safety gate: online failures must not silently instantiate the heavy
+        # 3B GGUF on mobile/PRoot. Keep local fallback explicitly opt-in twice.
+        heavy_local_opt_in = os.getenv("JARVIS_ENABLE_HEAVY_LOCAL_MODEL", "false").strip().lower() in {"1", "true", "yes", "on"}
+        allow_local_fallback = allow_local_fallback and (self._force_mode == "offline" or heavy_local_opt_in)
         if online and have_groq_key:
             try:
                 result = self._get_groq().generate(system_prompt=bounded_system, user_input=bounded_user, max_tokens=reserved_tokens, temperature=temperature)
