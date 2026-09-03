@@ -39,7 +39,15 @@ class EvolutionExecutionWiringTests(unittest.TestCase):
 
         self.assertEqual(calls, [proposal["id"]])
         self.assertEqual(applied["status"], "APPLIED")
-        self.assertEqual(applied["execution"], {"changed": True})
+        execution = applied["execution"]
+        self.assertTrue(execution["changed"])
+        self.assertIsInstance(execution["revision_id"], str)
+        self.assertGreaterEqual(execution["revision"], 1)
+        self.assertTrue(execution["next_cycle_ready"])
+        self.assertEqual(
+            execution["change_record"],
+            {"target": "response_routing", "proposal_id": proposal["id"]},
+        )
         self.assertEqual(evolution.statistics()["applied"], 1)
 
     def test_approved_proposal_without_adapter_is_blocked(self):
