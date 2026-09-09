@@ -19,16 +19,20 @@
 .dashboard-sync-button.is-syncing svg { animation:dashboard-sync-loop var(--sync-duration,2s) cubic-bezier(.4,0,.2,1) 1; transform-origin:50% 50%; }
 @keyframes dashboard-sync-loop { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
 
-/* Every dashboard tab uses the same 12px outer breathing room and 12px card gap. */
+/* GLOBAL TAB LAYOUT: every dashboard/observability tab shares the same viewport padding and vertical rhythm. */
 .dashboard-screen-shell { padding:12px; gap:12px; }
-.trace-inspector-page { width:100%; min-width:0; height:100%; min-height:0; overflow-y:auto; overflow-x:hidden; box-sizing:border-box; padding:12px; display:flex; flex-direction:column; gap:12px; }
-.trace-inspector-page .trace-inspector-bar { width:100%; margin:0; padding:10px 12px; gap:12px; box-sizing:border-box; flex-shrink:0; }
+.trace-inspector-page { width:100%; min-width:0; height:100%; min-height:0; box-sizing:border-box; overflow-y:auto; overflow-x:hidden; padding:12px; }
+.trace-inspector-page .trace-inspector-bar { width:100%; margin:0 0 12px 0; padding:10px 12px; gap:12px; box-sizing:border-box; position:static!important; top:auto!important; bottom:auto!important; inset:auto!important; flex-shrink:0; }
 .trace-inspector-page .trace-inspector-controls { flex-wrap:wrap; justify-content:flex-end; gap:6px; }
-.trace-inspector-page .trace-inspector-main { width:100%; min-width:0; padding:0; margin:0; flex:1 1 auto; }
-.trace-inspector-page .trace-inspector-main > .trace-root { width:100%; min-width:0; margin:0; }
+.trace-inspector-page .trace-inspector-main { width:100%; min-width:0; padding:0; margin:0; }
+.trace-inspector-page .trace-inspector-main > .trace-root { width:100%; min-width:0; margin:0; height:auto!important; min-height:0; }
+
+/* The Monitor and Trace headers are normal document headers, never locked/sticky. */
+.dashboard-screen-shell .trace-inspector-bar,
+.trace-inspector-page .trace-inspector-bar { position:static!important; top:auto!important; bottom:auto!important; inset:auto!important; }
 
 /* Professional title case for the dedicated Cognitive Trace tab and trace terminator. */
-.trace-inspector-page .trace-inspector-heading h1 { text-transform:capitalize!important; }
+.trace-inspector-page .trace-inspector-heading h1 { text-transform:none!important; }
 .trace-end span { text-transform:capitalize; letter-spacing:.08em; }
 
 /* Footer is intentionally landing-page-only. HomeScreen owns its visible footer. */
