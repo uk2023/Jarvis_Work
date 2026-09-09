@@ -55,16 +55,14 @@ export function TraceInspectorScreen({ selectedTurnId, onSelectTurnId, theme }: 
     onSelectTurnId?.(id);
   };
 
-
-
   return (
-    <div className="trace-inspector-page">
+    <div className="trace-inspector-page h-full overflow-y-auto overflow-x-hidden font-mono text-xs max-w-full">
       <header className="trace-inspector-bar">
         <div className="trace-inspector-brand">
           <div className="trace-inspector-icon trace-inspector-icon-live"><FileSearch size={19} /><span className="trace-inspector-pulse" /></div>
           <div className="trace-inspector-heading">
             <div className="trace-inspector-eyebrow"><Radio size={10} /> JARVIS / OBSERVABILITY</div>
-            <h1>COGNITIVE TRACE</h1>
+            <h1>Cognitive Trace</h1>
             <p>Per-turn execution monitor</p>
           </div>
         </div>
