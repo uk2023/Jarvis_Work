@@ -1,91 +1,36 @@
 import React from 'react';
-import { Activity, Brain, CheckCircle2, Clock3, Database, Moon, Sparkles, Zap } from 'lucide-react';
-import { AppTheme, LiveStateResponse, StageTransition } from '../types';
+import { Activity, Brain, Database, Moon, Sparkles, Zap } from 'lucide-react';
+import { motion } from 'motion/react';
+import { AppTheme, LiveStateResponse } from '../types';
 
 interface Props { liveState: LiveStateResponse | null; theme: AppTheme; }
-
 type StateKey = 'IDLE' | 'PERCEIVING' | 'INDEXING' | 'CONSOLIDATING' | 'EXECUTING';
-
-const STATES: Array<{ key: StateKey; icon: React.ElementType; accent: string }> = [
-  { key: 'IDLE', icon: Moon, accent: '#64748b' },
-  { key: 'PERCEIVING', icon: Activity, accent: '#5b8def' },
-  { key: 'INDEXING', icon: Database, accent: '#22c55e' },
-  { key: 'CONSOLIDATING', icon: Brain, accent: '#06b6d4' },
-  { key: 'EXECUTING', icon: Zap, accent: '#a855f7' },
+const STATES: Array<{key:StateKey;icon:React.ElementType;accent:string}> = [
+ {key:'IDLE',icon:Moon,accent:'#64748b'}, {key:'PERCEIVING',icon:Activity,accent:'#5b8def'},
+ {key:'INDEXING',icon:Database,accent:'#22c55e'}, {key:'CONSOLIDATING',icon:Brain,accent:'#06b6d4'}, {key:'EXECUTING',icon:Zap,accent:'#a855f7'}
 ];
-
-function duration(value?: number) { return `${Number(value ?? 0).toFixed(3)}s`; }
-function ago(timestamp?: number) {
-  if (!timestamp) return '—';
-  const seconds = Math.max(0, (Date.now() - timestamp * 1000) / 1000);
-  if (seconds < 60) return `${seconds.toFixed(1)}s ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  return `${Math.floor(seconds / 3600)}h ago`;
-}
-
-export function CognitivePipelineCard({ liveState, theme }: Props) {
-  const current = String(liveState?.stage || 'IDLE').toUpperCase() as StateKey;
-  const trace = [...(liveState?.pipeline_trace ?? [])].sort((a, b) => a.timestamp - b.timestamp).slice(-8);
-  const dark = theme === 'dark';
-
-  return (
-    <section id="card-cognitive-pipeline" className={`trace-root ${dark ? 'trace-dark' : 'trace-light'} overflow-hidden`}>
-      <div className="px-3 py-3 sm:px-4">
-        <div className="flex items-center justify-between gap-3 mb-2.5">
-          <div className="trace-flow-label !mb-0"><Activity size={13} /> COGNITIVE STATE <span>· LIVE SYSTEM POSITION</span></div>
-          <div className="trace-live shrink-0"><span /> {current}</div>
-        </div>
-
-        <div className="w-full overflow-x-auto overflow-y-hidden pb-1">
-          <div className="flex items-stretch justify-center gap-1.5 sm:gap-2 min-w-[760px] mx-auto">
-            {STATES.map(({ key, icon: Icon, accent }) => {
-              const active = key === current;
-              return (
-                <div key={key} className="relative flex-1 min-w-[140px] max-w-[220px] min-h-[64px]">
-                  <div
-                    className={`h-full flex items-center gap-2 px-2.5 py-2 border-b-2 transition-all ${active ? 'bg-white/[.045]' : 'bg-transparent'} ${dark ? 'border-white/10' : 'border-slate-200'}`}
-                    style={active ? { borderBottomColor: accent, boxShadow: `inset 0 -1px 12px ${accent}18` } : undefined}
-                  >
-                    <span className="shrink-0 w-7 h-7 flex items-center justify-center border rounded-md" style={{ color: active ? accent : undefined, background: active ? `${accent}16` : undefined, borderColor: active ? `${accent}35` : undefined }}>
-                      <Icon size={14} />
-                    </span>
-                    <div className="min-w-0">
-                      <div className={`text-[10px] font-bold tracking-[.12em] truncate ${active ? '' : 'text-slate-500'}`} style={active ? { color: accent } : undefined}>{key}</div>
-                      <div className="text-[9px] uppercase text-slate-500 truncate">{active ? 'CURRENT STATE' : 'STANDBY'}</div>
-                    </div>
-                    {active && <CheckCircle2 className="ml-auto shrink-0" size={13} style={{ color: accent }} />}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] uppercase tracking-wider text-slate-500">
-          <span>CURRENT: <b style={{ color: STATES.find(s => s.key === current)?.accent }}>{current}</b></span>
-          <span>•</span><span>TRANSITIONS: {trace.length}</span>
-          <span>•</span><span>FALLBACK: <b className={liveState?.fallback_active ? 'text-amber-400' : 'text-emerald-400'}>{liveState?.fallback_active ? 'ACTIVE' : 'CLEAR'}</b></span>
-        </div>
-      </div>
-
-      {trace.length > 0 && (
-        <div className={`border-t px-3 py-2.5 sm:px-4 ${dark ? 'border-white/5' : 'border-slate-200'}`}>
-          <div className="flex items-center gap-2 mb-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-500"><Clock3 size={11} /> Recent transitions</div>
-          <div className="overflow-x-auto overflow-y-hidden">
-            <div className="flex gap-1.5 min-w-max">
-              {trace.map((item: StageTransition, index) => (
-                <div key={`${item.timestamp}-${index}`} className={`shrink-0 max-w-[210px] px-2 py-1.5 border ${dark ? 'border-white/8 bg-white/[.018]' : 'border-slate-200 bg-slate-50'}`}>
-                  <div className="flex items-center gap-1.5 text-[9px] font-bold">
-                    <span className="text-slate-500">{item.previous_stage}</span><span>→</span><span className="text-[#5b8def]">{item.stage}</span>
-                    <span className="text-slate-500">{duration(item.duration_in_previous)}</span>
-                  </div>
-                  <div className="mt-0.5 truncate text-[8px] text-slate-500" title={item.detail?.message ?? item.detail?.reason ?? ''}>{item.detail?.message ?? item.detail?.reason ?? ago(item.timestamp)}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </section>
-  );
+const positions = [[50,50],[50,12],[84,36],[72,82],[28,82]];
+export function CognitivePipelineCard({liveState,theme}:Props){
+ const current=String(liveState?.stage||'IDLE').toUpperCase() as StateKey;
+ const safeCurrent=STATES.some(s=>s.key===current)?current:'IDLE';
+ const dark=theme==='dark';
+ const activeIndex=Math.max(0,STATES.findIndex(s=>s.key===safeCurrent));
+ return <section id="card-cognitive-pipeline" className={`trace-root ${dark?'trace-dark':'trace-light'} overflow-hidden`}>
+  <div className="px-3 py-3 sm:px-4">
+   <div className="flex items-center justify-between gap-3 mb-1"><div className="trace-flow-label !mb-0"><Activity size={13}/> COGNITIVE STATE <span>· LIVE SYSTEM POSITION</span></div><div className="trace-live shrink-0"><span/> LIVE</div></div>
+   <div className="relative mx-auto mt-1 h-[250px] w-full max-w-[430px] overflow-hidden rounded-xl border bg-black/[.015] dark:bg-white/[.01]" aria-label={`Current cognitive state ${safeCurrent}`}>
+    <div className="absolute inset-[18%] rounded-full border border-slate-400/10 dark:border-white/5"/>
+    <div className="absolute inset-[31%] rounded-full border border-slate-400/8 dark:border-white/5"/>
+    {STATES.map(({key,icon:Icon,accent},index)=>{const active=index===activeIndex; const [x,y]=positions[index]; return <motion.div key={key} className="absolute" animate={{left:`${x}%`,top:`${y}%`,scale:active?1.45:.72,opacity:active?1:.62}} transition={{type:'spring',stiffness:110,damping:16,mass:.7}} style={{transform:'translate(-50%,-50%)'}}>
+      <motion.div animate={{boxShadow:active?`0 0 28px ${accent}55, 0 0 8px ${accent}35`:'0 4px 14px rgba(0,0,0,.16)'}} transition={{duration:.35}} className="relative flex h-[54px] w-[54px] items-center justify-center rounded-full border backdrop-blur-md" style={{borderColor:active?`${accent}85`:`${accent}30`,background:dark?'rgba(15,23,42,.82)':'rgba(255,255,255,.88)'}}>
+       {active&&<motion.span className="absolute inset-[-8px] rounded-full border" style={{borderColor:`${accent}45`}} animate={{scale:[1,1.12,1],opacity:[.7,.15,.7]}} transition={{duration:2,repeat:Infinity,ease:'easeInOut'}}/>}
+       <Icon size={active?18:15} style={{color:accent}}/>
+       <span className={`absolute top-[calc(100%+7px)] whitespace-nowrap text-[8px] font-bold tracking-[.1em] ${active?'text-slate-900 dark:text-slate-100':'text-slate-500'}`}>{key}</span>
+      </motion.div>
+    </motion.div>})}
+    <motion.div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none" animate={{opacity:[.35,.65,.35],scale:[.92,1.04,.92]}} transition={{duration:2.6,repeat:Infinity,ease:'easeInOut'}}><Sparkles size={14} className="text-slate-400"/></motion.div>
+   </div>
+   <div className="mt-2 flex items-center justify-center gap-x-3 text-[9px] uppercase tracking-wider text-slate-500"><span>CURRENT: <b style={{color:STATES[activeIndex].accent}}>{safeCurrent}</b></span><span>•</span><span>FALLBACK: <b className={liveState?.fallback_active?'text-amber-400':'text-emerald-400'}>{liveState?.fallback_active?'ACTIVE':'CLEAR'}</b></span></div>
+  </div>
+ </section>;
 }
