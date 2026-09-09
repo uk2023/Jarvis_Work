@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Activity, Shield, Sparkles, ArrowUp, Mic, MicOff, Cpu, Brain, Zap, Orbit, Command, ChevronDown, ChevronUp, Radio, Terminal } from 'lucide-react';
+import { Activity, Shield, Sparkles, ArrowUp, Mic, MicOff, Cpu, Brain, Zap, Command, ChevronDown, ChevronUp, Radio, Terminal } from 'lucide-react';
 import { AppTheme } from '../types';
 import '../styles/dashboard-tables.css';
+import '../styles/jarvis-home.css';
 
 interface HomeScreenProps {
   theme: AppTheme;
@@ -30,6 +31,7 @@ export function HomeScreen({ theme, onNavigateToView, onStartChatWithPrompt, isA
   const [isListening, setIsListening] = useState(false);
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [canExpand, setCanExpand] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -53,6 +55,7 @@ export function HomeScreen({ theme, onNavigateToView, onStartChatWithPrompt, isA
     const lineHeight = 24;
     const maxHeight = lineHeight * 5;
     const naturalHeight = Math.max(el.scrollHeight, lineHeight * 2);
+    setCanExpand(el.scrollHeight > lineHeight * 2 + 1);
     el.style.height = `${Math.min(naturalHeight, maxHeight)}px`;
     el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
   }, [prompt, expanded]);
@@ -76,8 +79,6 @@ export function HomeScreen({ theme, onNavigateToView, onStartChatWithPrompt, isA
     } else setIsListening(false);
   };
 
-  const showExpand = prompt.split('\n').length >= 3 || prompt.length > 90;
-
   return (
     <div className={`jarvis-home ${isKeyboardOpen ? 'keyboard-open' : ''} ${isDark ? 'jarvis-home-dark' : 'jarvis-home-light'}`}>
       <div className="jarvis-space-field" aria-hidden="true"><span className="jarvis-star s1" /><span className="jarvis-star s2" /><span className="jarvis-star s3" /><span className="jarvis-star s4" /><span className="jarvis-nebula n1" /><span className="jarvis-nebula n2" /></div>
@@ -100,7 +101,7 @@ export function HomeScreen({ theme, onNavigateToView, onStartChatWithPrompt, isA
               <div className="jarvis-input-wrap">
                 <Sparkles size={14} className="jarvis-input-spark" />
                 <textarea ref={textareaRef} value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={handleKeyDown} rows={2} maxLength={4000} placeholder="Message JARVIS..." aria-label="Message JARVIS" aria-multiline="true" className="jarvis-prompt-input" style={{ color: 'var(--jarvis-text)' }} />
-                {showExpand && !isKeyboardOpen && <button type="button" className="jarvis-expand-button" onClick={() => setExpanded(v => !v)} aria-label={expanded ? 'Collapse message box' : 'Expand message box'}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>}
+                {canExpand && !isKeyboardOpen && <button type="button" className="jarvis-expand-button" onClick={() => setExpanded(v => !v)} aria-label={expanded ? 'Collapse message box' : 'Expand message box'}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>}
               </div>
               <div className="jarvis-composer-footer" style={{ borderColor: 'var(--jarvis-border)' }}>
                 <span className="jarvis-native-badge"><Terminal size={11} /> {expanded ? 'EXPANDED · 5 LINE MAX' : 'NATIVE-FIRST'}</span>
