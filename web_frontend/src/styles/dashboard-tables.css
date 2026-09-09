@@ -7,37 +7,28 @@
 .dashboard-table-muted { color:var(--dashboard-table-muted); }
 .dashboard-table-body { overflow:hidden; }
 .dashboard-table-fixed-cell { height:40px; min-height:40px; max-height:40px; display:flex; align-items:center; }
-.dashboard-table-message { height:40px; min-height:40px; max-height:40px; display:flex; align-items:center; overflow:hidden; white-space:normal; overflow-wrap:anywhere; word-break:break-word; text-align:justify; text-justify:inter-word; line-height:1.35; }
+.dashboard-table-message { height:40px; min-height:40px; max-height:40px; display:flex; align-items:center; overflow:hidden; white-space:normal; overflow-wrap:anywhere; word-break:break-word; text-align:left; text-justify:auto; line-height:1.35; }
 .dashboard-table-center { text-align:center; justify-content:center; }
 .dashboard-table-row > * { min-width:0; }
-.dashboard-table-row > *:last-child { justify-content:flex-start; align-items:center; text-align:justify; text-justify:inter-word; }
+.dashboard-table-row > *:last-child { justify-content:flex-start; align-items:center; text-align:left; text-justify:auto; }
 .dashboard-table-container { min-height:250px; }
-
 .dashboard-observability-card { background:var(--jarvis-surface)!important; color:var(--jarvis-text)!important; border-color:var(--jarvis-border)!important; }
-
-/* Header stays in normal document flow; no sticky/fixed/locked tab. */
 .trace-inspector-bar { position:relative!important; top:auto!important; left:auto!important; right:auto!important; z-index:1!important; }
 .trace-tab-control { min-width:0!important; max-width:94px; height:28px; display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:0 8px; border:1px solid var(--jarvis-border)!important; border-radius:8px; background:var(--jarvis-surface-raised)!important; color:var(--jarvis-text-muted)!important; font:800 8px/1 ui-monospace,monospace; letter-spacing:.05em; }
 .dashboard-sync-button { animation:dashboard-sync-breathe 2.2s ease-in-out infinite; }
 @keyframes dashboard-sync-breathe { 0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--jarvis-accent) 0%,transparent)} 50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--jarvis-accent) 12%,transparent)} }
 
-/* Cognitive state: five larger spheres; the four inactive nodes travel continuously on one true orbit. */
+/* Restore the original cognitive-state layout/orbit. Only sphere size is increased. */
 #card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(3),
 #card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(4),
 #card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(5),
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(6) { width:30px!important; height:30px!important; left:50%!important; top:50%!important; right:auto!important; bottom:auto!important; margin:-15px!important; transform:none!important; }
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(3) { animation:cognitive-orbit-a 18s linear infinite, cognitive-node-pulse 2.2s ease-in-out infinite!important; }
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(4) { animation:cognitive-orbit-b 18s linear infinite, cognitive-node-pulse 2.2s ease-in-out infinite!important; }
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(5) { animation:cognitive-orbit-c 18s linear infinite, cognitive-node-pulse 2.2s ease-in-out infinite!important; }
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(6) { animation:cognitive-orbit-d 18s linear infinite, cognitive-node-pulse 2.2s ease-in-out infinite!important; }
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(7) { width:76px!important; height:76px!important; }
-@keyframes cognitive-orbit-a { from{transform:rotate(0deg) translateY(-89px) rotate(0deg)} to{transform:rotate(360deg) translateY(-89px) rotate(-360deg)} }
-@keyframes cognitive-orbit-b { from{transform:rotate(90deg) translateY(-89px) rotate(-90deg)} to{transform:rotate(450deg) translateY(-89px) rotate(-450deg)} }
-@keyframes cognitive-orbit-c { from{transform:rotate(180deg) translateY(-89px) rotate(-180deg)} to{transform:rotate(540deg) translateY(-89px) rotate(-540deg)} }
-@keyframes cognitive-orbit-d { from{transform:rotate(270deg) translateY(-89px) rotate(-270deg)} to{transform:rotate(630deg) translateY(-89px) rotate(-630deg)} }
-@keyframes cognitive-node-pulse { 0%,100%{scale:1} 50%{scale:1.12} }
+#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(6) { width:30px!important; height:30px!important; margin:0!important; }
+#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(3) { animation:pulse 2.2s ease-in-out infinite!important; }
+#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(4) { animation:pulse 2.2s ease-in-out infinite!important; }
+#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(5) { animation:pulse 2.2s ease-in-out infinite!important; }
+#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(6) { animation:pulse 2.2s ease-in-out infinite!important; }
+#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(7) { width:68px!important; height:68px!important; }
 
-/* Self-improvement: same trace surface, field spacing and compact telemetry language. */
 #self-improvement-list { background:var(--jarvis-surface)!important; color:var(--jarvis-text)!important; border-color:var(--jarvis-border)!important; border-radius:16px!important; box-shadow:0 8px 24px rgba(0,0,0,.10); }
 #self-improvement-list > div:first-of-type { border-color:var(--jarvis-border)!important; }
 #self-improvement-list > p { color:var(--jarvis-text-muted)!important; }
