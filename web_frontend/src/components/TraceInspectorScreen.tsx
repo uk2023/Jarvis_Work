@@ -56,8 +56,11 @@ export function TraceInspectorScreen({ selectedTurnId, onSelectTurnId, theme }: 
   };
 
   return (
-    <div className="trace-inspector-page h-full overflow-y-auto overflow-x-hidden font-mono text-xs max-w-full">
-      <header className="trace-inspector-bar">
+    <div className="trace-inspector-page h-full overflow-y-auto overflow-x-hidden font-mono text-xs max-w-full p-3 sm:p-5">
+      <header
+        className="trace-inspector-bar"
+        style={{ position: 'static', top: 'auto', bottom: 'auto', inset: 'auto', zIndex: 'auto' }}
+      >
         <div className="trace-inspector-brand">
           <div className="trace-inspector-icon trace-inspector-icon-live"><FileSearch size={19} /><span className="trace-inspector-pulse" /></div>
           <div className="trace-inspector-heading">
@@ -72,9 +75,7 @@ export function TraceInspectorScreen({ selectedTurnId, onSelectTurnId, theme }: 
             <span>TURN</span>
             <select value={activeTurnId} onChange={e => selectTurn(e.target.value)} disabled={!history.length}>
               {visibleHistory.length ? visibleHistory.map(item => (
-                <option key={item.turnId} value={item.turnId}>
-                  {item.turnId} — {item.query.slice(0, 38)}
-                </option>
+                <option key={item.turnId} value={item.turnId}>{item.turnId} — {item.query.slice(0, 38)}</option>
               )) : <option value="">No recorded turns</option>}
             </select>
             <ChevronDown size={14} />
@@ -92,7 +93,21 @@ export function TraceInspectorScreen({ selectedTurnId, onSelectTurnId, theme }: 
         </div>
       </header>
 
-      <main className="trace-inspector-main">
+      <main className="trace-inspector-main" style={{ width: '100%', minWidth: 0, margin: 0, padding: 0 }}>
+        <style>{`
+          .trace-inspector-page .trace-root { width:100%; max-width:100%; margin:0 auto; }
+          .trace-inspector-page .trace-hero { padding:16px 16px 14px; }
+          .trace-inspector-page .trace-hero-title { margin-top:12px; }
+          .trace-inspector-page .trace-overview { margin-top:12px; gap:6px; }
+          .trace-inspector-page .trace-metric { padding:8px 9px; }
+          .trace-inspector-page .trace-flow { padding:14px 14px 16px; }
+          .trace-inspector-page .trace-stage { margin-bottom:9px; border-radius:13px; }
+          .trace-inspector-page .trace-stage-head { gap:7px; padding:9px 10px; }
+          .trace-inspector-page .trace-stage-content { padding:10px; }
+          .trace-inspector-page .trace-field { padding:8px 9px; }
+          .trace-inspector-page .trace-flow-label { margin-bottom:9px; }
+          .trace-inspector-page .trace-inspector-bar { position:static!important; top:auto!important; bottom:auto!important; inset:auto!important; z-index:auto!important; }
+        `}</style>
         {currentTrace ? (
           <TraceTreeViewer trace={currentTrace} theme={theme} initiallyExpanded={true} />
         ) : (
