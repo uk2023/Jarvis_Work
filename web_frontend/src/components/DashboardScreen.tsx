@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, BarChart3, ExternalLink, Maximize2, RefreshCw, Terminal, X } from 'lucide-react';
+import { Activity, BarChart3, Cpu, ExternalLink, Maximize2, RefreshCw, Terminal, X } from 'lucide-react';
 import { LiveStateResponse, SystemResourcesData, ActivityHistoryItem, AppTheme } from '../types';
 import { api } from '../api/client';
 import { OrganIntrospectionViewer } from './OrganIntrospectionViewer';
@@ -63,20 +63,17 @@ export function DashboardScreen({ onSelectTurn, theme, activeSection = 'monitor'
   const showReasoning = currentSection === 'reasoning' || currentSection === 'all';
   const showOrgans = currentSection === 'organs' || currentSection === 'all';
 
-  const surface = isDark ? '!bg-[#0f141d] !border-[#293446] !text-[#edf3fb]' : '!bg-white !border-slate-200 !text-slate-900';
-
   const headerControls = <>
-    <span className="trace-tab-control">PID: {liveState?.pid || '—'}</span>
+    <span className="trace-tab-control" title={`Process ID: ${liveState?.pid || '—'}`} aria-label={`Process ID ${liveState?.pid || 'unknown'}`}><Cpu size={11} />{liveState?.pid || '—'}</span>
     <select value={pollIntervalMs} onChange={e => setPollIntervalMs(Number(e.target.value))} className="trace-tab-control cursor-pointer outline-none">
       <option value={1000}>POLL: 1s</option><option value={2000}>POLL: 2s</option><option value={5000}>POLL: 5s</option><option value={0}>POLL: PAUSED</option>
     </select>
-    <button onClick={fetchDashboardData} disabled={isRefreshing} className="trace-action-btn flex items-center gap-1.5" title="Sync now" aria-label="Sync now"><RefreshCw className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`} />SYNC</button>
+    <button onClick={fetchDashboardData} disabled={isRefreshing} className="trace-action-btn dashboard-sync-button flex items-center justify-center p-2" title="Sync now" aria-label="Sync now"><RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : 'animate-[spin_3s_linear_infinite]'}`} /></button>
   </>;
 
-  const expandButton = (table: 'activity' | 'logs') => <button onClick={() => setExpandedTable(table)} className={`px-2 py-1 border rounded-md flex items-center gap-1 text-[8px] font-bold shrink-0 ${isDark ? 'bg-white/5 hover:bg-white/10 border-white/10 text-[#8eb3ff]' : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-[#315fbe]'}`}><Maximize2 className="w-2.5 h-2.5" />Expand</button>;
+  const expandButton = (table: 'activity' | 'logs') => <button onClick={() => setExpandedTable(table)} className={`p-1.5 border rounded-md flex items-center justify-center text-[8px] font-bold shrink-0 ${isDark ? 'bg-white/5 hover:bg-white/10 border-white/10 text-[#8eb3ff]' : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-[#315fbe]'}`} title="Expand table" aria-label="Expand table"><Maximize2 className="w-3 h-3" /></button>;
 
-  // One geometry is shared by both tables so every vertical divider and cell aligns exactly.
-  const tableGrid = 'grid-cols-[60px_64px_minmax(0,1fr)]';
+  const tableGrid = 'grid-cols-[60px_68px_minmax(0,1fr)]';
 
   const normalizedLogs = useMemo(() => {
     const severityRank: Record<string, number> = { debug: 0, info: 1, warning: 2, warn: 2, error: 3 };
@@ -96,9 +93,9 @@ export function DashboardScreen({ onSelectTurn, theme, activeSection = 'monitor'
     const rows = history.slice(-5);
     return <div className={`dashboard-table-surface border rounded-lg overflow-hidden w-full ${expanded ? 'min-w-0' : ''}`}>
       <div className={`grid ${tableGrid} gap-0 border-b dashboard-table-header text-[7px] uppercase tracking-[.14em]`}>
-        <span className="dashboard-table-fixed-cell dashboard-table-center border-r dashboard-table-cell-divider px-1.5 text-center">Timestamp</span>
-        <span className="dashboard-table-fixed-cell dashboard-table-center border-r dashboard-table-cell-divider px-1.5 text-center">TRXN</span>
-        <span className="dashboard-table-fixed-cell dashboard-table-center px-1.5 text-center">Content</span>
+        <span className="dashboard-table-fixed-cell dashboard-table-center border-r dashboard-table-cell-divider px-1.5">TIME</span>
+        <span className="dashboard-table-fixed-cell dashboard-table-center border-r dashboard-table-cell-divider px-1.5">TRXN</span>
+        <span className="dashboard-table-fixed-cell dashboard-table-center px-1.5">Content</span>
       </div>
       <div className="dashboard-table-body">
         {rows.length === 0 ? <div className="px-2.5 py-3 dashboard-table-muted text-[9px]">No activity history available.</div> : rows.map(item => {
@@ -117,9 +114,9 @@ export function DashboardScreen({ onSelectTurn, theme, activeSection = 'monitor'
 
   const logsTable = (expanded = false) => <div className={`dashboard-table-surface border rounded-lg overflow-hidden w-full ${expanded ? 'min-w-0' : ''}`}>
     <div className={`grid ${tableGrid} gap-0 border-b dashboard-table-header text-[7px] uppercase tracking-[.14em]`}>
-      <span className="dashboard-table-fixed-cell dashboard-table-center border-r dashboard-table-cell-divider px-1.5 text-center">Timestamp</span>
-      <span className="dashboard-table-fixed-cell dashboard-table-center border-r dashboard-table-cell-divider px-1.5 text-center">Level</span>
-      <span className="dashboard-table-fixed-cell dashboard-table-center px-1.5 text-center">Diagnostic Message</span>
+      <span className="dashboard-table-fixed-cell dashboard-table-center border-r dashboard-table-cell-divider px-1.5">TIME</span>
+      <span className="dashboard-table-fixed-cell dashboard-table-center border-r dashboard-table-cell-divider px-1.5">Level</span>
+      <span className="dashboard-table-fixed-cell dashboard-table-center px-1.5">Diagnostic Message</span>
     </div>
     <div className="dashboard-table-body">
       {normalizedLogs.length === 0 ? <div className="px-2.5 py-3 dashboard-table-muted text-[9px]">No diagnostic logs available.</div> : normalizedLogs.map((log, index) => {
@@ -139,8 +136,8 @@ export function DashboardScreen({ onSelectTurn, theme, activeSection = 'monitor'
       <TabHeader icon={Activity} category="JARVIS / OBSERVABILITY" title="COGNITIVE MONITOR" subtitle="Live organism runtime monitor" controls={headerControls} />
       <CognitivePipelineCard liveState={liveState} theme={theme} />
       <CognitiveMonitoringCards liveState={liveState} resources={resources} theme={theme} />
-      <section id="card-activity-history" className={`trace-root overflow-hidden ${surface}`}><div className="px-3 py-2.5 sm:px-4"><div className="flex items-center justify-between gap-3 mb-2"><div className="flex items-center gap-2 min-w-0"><BarChart3 className="w-3.5 h-3.5 text-[#5b8def] shrink-0" /><div className="min-w-0"><h2 className="font-bold text-[9px] uppercase tracking-wider truncate">Recent Activity History</h2><div className="text-[7px] dashboard-table-muted truncate">Transaction stream · select a row to inspect</div></div></div><div className="flex items-center gap-2 shrink-0"><span className="text-[7px] dashboard-table-muted uppercase tracking-[.1em]">{history.length} turns</span>{expandButton('activity')}</div></div>{activityTable()}</div></section>
-      <section id="card-internal-logs" className={`trace-root overflow-hidden ${surface}`}><div className="px-3 py-2.5 sm:px-4"><div className="flex items-center justify-between gap-3 mb-2"><div className="flex items-center gap-2 min-w-0"><Terminal className="w-3.5 h-3.5 text-[#5b8def] shrink-0" /><div className="min-w-0"><h2 className="font-bold text-[9px] uppercase tracking-wider truncate">Internal Diagnostic Logs</h2><div className="text-[7px] dashboard-table-muted truncate">Runtime diagnostics · warnings and errors surfaced inline</div></div></div>{expandButton('logs')}</div>{logsTable()}</div></section>
+      <section id="card-activity-history" className="trace-root dashboard-observability-card overflow-hidden"><div className="px-3 py-2.5 sm:px-4"><div className="flex items-center justify-between gap-3 mb-2"><div className="flex items-center gap-2 min-w-0"><BarChart3 className="w-3.5 h-3.5 text-[#5b8def] shrink-0" /><div className="min-w-0"><h2 className="font-bold text-[9px] uppercase tracking-wider truncate">Recent Activity History</h2><div className="text-[7px] dashboard-table-muted truncate">Transaction stream · select a row to inspect</div></div></div><div className="flex items-center gap-2 shrink-0">{expandButton('activity')}</div></div>{activityTable()}</div></section>
+      <section id="card-internal-logs" className="trace-root dashboard-observability-card overflow-hidden"><div className="px-3 py-2.5 sm:px-4"><div className="flex items-center justify-between gap-3 mb-2"><div className="flex items-center gap-2 min-w-0"><Terminal className="w-3.5 h-3.5 text-[#5b8def] shrink-0" /><div className="min-w-0"><h2 className="font-bold text-[9px] uppercase tracking-wider truncate">Internal Diagnostic Logs</h2><div className="text-[7px] dashboard-table-muted truncate">Runtime diagnostics · warnings and errors surfaced inline</div></div></div>{expandButton('logs')}</div>{logsTable()}</div></section>
     </>}
     {showMemory && <MemoryDBPipeline liveState={liveState} resources={resources} theme={theme} />}
     {showReasoning && <><OvernightLearningCard theme={theme} /><SelfImprovementList theme={theme} /></>}
