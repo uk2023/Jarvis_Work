@@ -15,19 +15,17 @@ export function CognitivePipelineCard({liveState,theme}:Props){
  const raw=String(liveState?.stage||'IDLE').toUpperCase();
  const current=(STATES.some(s=>s.key===raw)?raw:'IDLE') as StateKey;
  const active=STATES.find(s=>s.key===current)!;
+ const inactive=STATES.filter(s=>s.key!==current);
+ const positions=['left-1/2 top-[10px] -translate-x-1/2','right-[8px] top-1/2 -translate-y-1/2','left-1/2 bottom-[10px] -translate-x-1/2','left-[8px] top-1/2 -translate-y-1/2'];
  return <section id="card-cognitive-pipeline" className={`trace-root ${dark?'trace-dark':'trace-light'} w-full overflow-hidden`}>
   <div className="px-3 py-3 sm:px-4">
    <div className="trace-flow-label !mb-1"><Activity size={13}/> COGNITIVE STATE <span>· LIVE SYSTEM POSITION</span></div>
-   <div className="relative mx-auto mt-1 h-[280px] w-full max-w-[430px] overflow-hidden">
-    <div className="absolute left-1/2 top-1/2 h-[190px] w-[190px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/5 shadow-[0_0_55px_rgba(91,141,239,.08)]" />
-    {STATES.filter(s=>s.key!==current).map((s,i)=>{
-      const positions=['left-1/2 top-[18px] -translate-x-1/2','right-[12px] top-1/2 -translate-y-1/2','left-1/2 bottom-[18px] -translate-x-1/2','left-[12px] top-1/2 -translate-y-1/2'];
-      const Icon=s.icon;
-      return <div key={s.key} className={`absolute ${positions[i]} flex h-[54px] w-[54px] items-center justify-center rounded-full border shadow-lg transition-all duration-700 ease-out ${dark?'border-white/10 bg-slate-950/80':'border-slate-200 bg-white'}`} style={{boxShadow:`0 8px 24px ${s.accent}12`}} title={s.key}><Icon size={17} style={{color:s.accent,opacity:.72}}/></div>;
-    })}
-    <div className="absolute left-1/2 top-1/2 flex h-[124px] w-[124px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border transition-all duration-700 ease-out" style={{borderColor:`${active.accent}70`,background:`radial-gradient(circle, ${active.accent}22 0%, ${active.accent}09 48%, transparent 72%)`,boxShadow:`0 0 24px ${active.accent}35, 0 0 70px ${active.accent}18`}}>
-      <div className="absolute inset-[10px] rounded-full border animate-pulse" style={{borderColor:`${active.accent}35`}}/>
-      <div className="relative text-center"><active.icon size={22} className="mx-auto mb-1.5" style={{color:active.accent}}/><div className="text-[12px] font-black tracking-[.16em]" style={{color:active.accent}}>{current}</div><div className="mt-1 text-[8px] font-bold tracking-[.14em] text-slate-500">ACTIVE STATE</div></div>
+   <div className="relative mx-auto mt-1 h-[252px] w-full max-w-[390px] overflow-hidden">
+    <div className="absolute left-1/2 top-1/2 h-[164px] w-[164px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/5" />
+    {inactive.map((s,i)=>{const Icon=s.icon;return <div key={s.key} className={`absolute ${positions[i]} flex h-[30px] w-[30px] items-center justify-center rounded-md border shadow-lg transition-all duration-700 ease-out animate-pulse ${dark?'border-white/10 bg-slate-950/80':'border-slate-200 bg-white'}`} style={{boxShadow:`0 0 18px ${s.accent}18`}} title={s.key}><Icon size={11} style={{color:s.accent,opacity:.78}}/></div>})}
+    <div className="absolute left-1/2 top-1/2 flex h-[92px] w-[124px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-2xl border transition-all duration-700 ease-out" style={{borderColor:`${active.accent}75`,background:`radial-gradient(circle, ${active.accent}25 0%, ${active.accent}09 55%, transparent 78%)`,boxShadow:`0 0 26px ${active.accent}45, 0 0 72px ${active.accent}22`}}>
+      <div className="absolute -inset-[9px] rounded-[22px] border animate-pulse" style={{borderColor:`${active.accent}30`,boxShadow:`0 0 20px ${active.accent}18`}}/>
+      <active.icon size={18} style={{color:active.accent}}/>
     </div>
    </div>
    <div className="mt-1 flex items-center justify-center gap-2 text-[9px] uppercase tracking-[.14em] text-slate-500"><span>CURRENT STATE:</span><b style={{color:active.accent}}>{current}</b></div>
