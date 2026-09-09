@@ -52,7 +52,8 @@ export function HomeScreen({ theme, onNavigateToView, onStartChatWithPrompt, isA
     el.style.height = 'auto';
     const lineHeight = 24;
     const maxHeight = lineHeight * 5;
-    el.style.height = `${Math.min(Math.max(el.scrollHeight, lineHeight * 2), maxHeight)}px`;
+    const naturalHeight = Math.max(el.scrollHeight, lineHeight * 2);
+    el.style.height = `${Math.min(naturalHeight, maxHeight)}px`;
     el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
   }, [prompt, expanded]);
 
@@ -98,7 +99,7 @@ export function HomeScreen({ theme, onNavigateToView, onStartChatWithPrompt, isA
             <form onSubmit={handleSubmit} className="jarvis-composer" style={{ backgroundColor: 'var(--jarvis-surface)', borderColor: 'var(--jarvis-border)' }}>
               <div className="jarvis-input-wrap">
                 <Sparkles size={14} className="jarvis-input-spark" />
-                <textarea ref={textareaRef} value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={handleKeyDown} rows={2} maxLength={4000} placeholder="Message JARVIS..." aria-label="Message JARVIS" className="jarvis-prompt-input" style={{ color: 'var(--jarvis-text)' }} />
+                <textarea ref={textareaRef} value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={handleKeyDown} rows={2} maxLength={4000} placeholder="Message JARVIS..." aria-label="Message JARVIS" aria-multiline="true" className="jarvis-prompt-input" style={{ color: 'var(--jarvis-text)' }} />
                 {showExpand && !isKeyboardOpen && <button type="button" className="jarvis-expand-button" onClick={() => setExpanded(v => !v)} aria-label={expanded ? 'Collapse message box' : 'Expand message box'}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>}
               </div>
               <div className="jarvis-composer-footer" style={{ borderColor: 'var(--jarvis-border)' }}>
