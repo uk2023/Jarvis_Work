@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Activity, Shield, Sparkles, ArrowUp, Mic, MicOff, Cpu, Brain, Zap, Command, ChevronDown, ChevronUp, Radio, Terminal } from 'lucide-react';
+import { Activity, Shield, Sparkles, ArrowUp, Mic, MicOff, Cpu, Brain, Zap, Command, Radio, Terminal } from 'lucide-react';
 import { AppTheme } from '../types';
 import '../styles/dashboard-tables.css';
 import '../styles/jarvis-home.css';
@@ -13,16 +13,9 @@ interface HomeScreenProps {
 }
 
 const QUICK_PROMPTS = [
-  { label: 'Check status', meta: 'SYSTEM', icon: Zap, query: 'Show me current organism vitals and CPU status' },
-  { label: 'Memory recall', meta: 'MEMORY', icon: Brain, query: 'Survey FAISS episodic memory for recent context' },
-  { label: 'Overnight learning', meta: 'LEARNING', icon: Cpu, query: 'What was discovered during overnight idle learning?' },
-];
-
-const LOG_LINES = [
-  'CORE ONLINE · native-first cognition ready',
-  'MEMORY GRAPH · semantic index synchronized',
-  'ORGANISM · heartbeat monitor active',
-  'JARVIS · awaiting operator input',
+  { label: 'Status', meta: 'SYSTEM', icon: Zap, query: 'Show me current organism vitals and CPU status' },
+  { label: 'Memory', meta: 'RECALL', icon: Brain, query: 'Survey FAISS episodic memory for recent context' },
+  { label: 'Learning', meta: 'DISCOVER', icon: Cpu, query: 'What was discovered during overnight idle learning?' },
 ];
 
 export function HomeScreen({ theme, onNavigateToView, onStartChatWithPrompt, isAdmin, onOpenAuth }: HomeScreenProps) {
@@ -30,22 +23,20 @@ export function HomeScreen({ theme, onNavigateToView, onStartChatWithPrompt, isA
   const [prompt, setPrompt] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const [canExpand, setCanExpand] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
-    const update = () => {
-      const open = window.innerHeight - viewport.height > 120;
-      setIsKeyboardOpen(open);
-      if (open) setExpanded(false);
-    };
+    const update = () => setIsKeyboardOpen(window.innerHeight - viewport.height > 120);
     update();
     viewport.addEventListener('resize', update);
     viewport.addEventListener('scroll', update);
-    return () => { viewport.removeEventListener('resize', update); viewport.removeEventListener('scroll', update); };
+    return () => {
+      viewport.removeEventListener('resize', update);
+      viewport.removeEventListener('scroll', update);
+    };
   }, []);
 
   useEffect(() => {
@@ -58,67 +49,103 @@ export function HomeScreen({ theme, onNavigateToView, onStartChatWithPrompt, isA
     setCanExpand(el.scrollHeight > lineHeight * 2 + 1);
     el.style.height = `${Math.min(naturalHeight, maxHeight)}px`;
     el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
-  }, [prompt, expanded]);
+  }, [prompt]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!prompt.trim()) return;
     onStartChatWithPrompt(prompt.trim());
     setPrompt('');
-    setExpanded(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
   };
 
   const toggleMic = () => {
     if (!isListening) {
       setIsListening(true);
-      setTimeout(() => { setPrompt('JARVIS, check system status'); setIsListening(false); }, 1800);
+      window.setTimeout(() => {
+        setPrompt('JARVIS, check system status');
+        setIsListening(false);
+        textareaRef.current?.focus();
+      }, 1800);
     } else setIsListening(false);
   };
 
   return (
     <div className={`jarvis-home ${isKeyboardOpen ? 'keyboard-open' : ''} ${isDark ? 'jarvis-home-dark' : 'jarvis-home-light'}`}>
-      <div className="jarvis-space-field" aria-hidden="true"><span className="jarvis-star s1" /><span className="jarvis-star s2" /><span className="jarvis-star s3" /><span className="jarvis-star s4" /><span className="jarvis-nebula n1" /><span className="jarvis-nebula n2" /></div>
+      <div className="jarvis-space-field" aria-hidden="true">
+        <span className="jarvis-star s1" /><span className="jarvis-star s2" /><span className="jarvis-star s3" /><span className="jarvis-star s4" />
+        <span className="jarvis-nebula n1" /><span className="jarvis-nebula n2" />
+        <div className="jarvis-intelligence-wave wave-a" /><div className="jarvis-intelligence-wave wave-b" /><div className="jarvis-intelligence-wave wave-c" />
+      </div>
+
       <main className="jarvis-home-main">
         <div className="jarvis-home-content">
           <section className="jarvis-hero">
-            <div className="jarvis-black-hole" aria-label="JARVIS core">
+            <div className="jarvis-black-hole" aria-label="JARVIS cognitive core">
               <div className="jarvis-orbit orbit-a" /><div className="jarvis-orbit orbit-b" /><div className="jarvis-orbit orbit-c" />
               <div className="jarvis-accretion" /><div className="jarvis-core-glow" /><div className="jarvis-core-void"><span /><span /><span /></div>
             </div>
             <div className="jarvis-identity">
-              <div className="jarvis-eyebrow"><Radio size={11} /> JARVIS COGNITIVE OS <span>•</span> ONLINE</div>
+              <div className="jarvis-eyebrow"><Radio size={10} /> COGNITIVE OS <span>•</span> ONLINE</div>
               <h1>JARVIS</h1>
-              <p>Intelligent, local-first cognition — ready when you are.</p>
+              <p>Namaste! Aaj kya help karu?</p>
             </div>
           </section>
 
-          <section className={`jarvis-command-zone ${expanded ? 'is-expanded' : ''} ${isKeyboardOpen ? 'is-keyboard-collapsed' : ''}`}>
-            <form onSubmit={handleSubmit} className="jarvis-composer" style={{ backgroundColor: 'var(--jarvis-surface)', borderColor: 'var(--jarvis-border)' }}>
+          <section className="jarvis-command-zone">
+            <form onSubmit={handleSubmit} className="jarvis-composer">
               <div className="jarvis-input-wrap">
                 <Sparkles size={14} className="jarvis-input-spark" />
-                <textarea ref={textareaRef} value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={handleKeyDown} rows={2} maxLength={4000} placeholder="Message JARVIS..." aria-label="Message JARVIS" aria-multiline="true" className="jarvis-prompt-input" style={{ color: 'var(--jarvis-text)' }} />
-                {canExpand && !isKeyboardOpen && <button type="button" className="jarvis-expand-button" onClick={() => setExpanded(v => !v)} aria-label={expanded ? 'Collapse message box' : 'Expand message box'}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>}
+                <textarea
+                  ref={textareaRef}
+                  value={prompt}
+                  onChange={e => setPrompt(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  rows={2}
+                  maxLength={4000}
+                  placeholder="Message JARVIS..."
+                  aria-label="Message JARVIS"
+                  aria-multiline="true"
+                  className="jarvis-prompt-input"
+                />
               </div>
-              <div className="jarvis-composer-footer" style={{ borderColor: 'var(--jarvis-border)' }}>
-                <span className="jarvis-native-badge"><Terminal size={11} /> {expanded ? 'EXPANDED · 5 LINE MAX' : 'NATIVE-FIRST'}</span>
+              <div className="jarvis-composer-footer">
+                <span className="jarvis-native-badge"><Terminal size={11} /> {canExpand ? 'MULTI-LINE' : 'READY'}</span>
                 <div className="jarvis-command-actions">
-                  <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon ${isListening ? 'is-listening' : ''}`}>{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button>
-                  <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="jarvis-send-button" style={{ backgroundColor: prompt.trim() ? 'var(--jarvis-accent)' : 'var(--jarvis-border)', color: prompt.trim() ? 'white' : 'var(--jarvis-text-muted)' }}><ArrowUp size={17} /></button>
+                  <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon ${isListening ? 'is-listening' : ''}`}>
+                    {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+                  </button>
+                  <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="jarvis-send-button">
+                    <ArrowUp size={17} />
+                  </button>
                 </div>
               </div>
             </form>
+
             <div className={`jarvis-quick-rail ${isKeyboardOpen ? 'is-hidden' : ''}`} aria-label="JARVIS quick actions">
-              {QUICK_PROMPTS.map(item => { const Icon = item.icon; return <button key={item.label} type="button" onClick={() => onStartChatWithPrompt(item.query)} className="jarvis-quick-card"><span className="jarvis-quick-icon"><Icon size={14} /></span><span className="jarvis-quick-copy"><small>{item.meta}</small><strong>{item.label}</strong></span></button>; })}
+              {QUICK_PROMPTS.map(item => {
+                const Icon = item.icon;
+                return (
+                  <button key={item.label} type="button" onClick={() => onStartChatWithPrompt(item.query)} className="jarvis-quick-card" aria-label={`${item.label} quick action`}>
+                    <span className="jarvis-quick-icon"><Icon size={17} /></span>
+                    <span className="jarvis-quick-copy"><small>{item.meta}</small><strong>{item.label}</strong></span>
+                  </button>
+                );
+              })}
             </div>
           </section>
 
-          <section className={`jarvis-log-panel ${isKeyboardOpen ? 'is-expanded' : ''}`} aria-label="JARVIS live log">
-            <div className="jarvis-log-head"><div><Activity size={13} /><span>JARVIS LIVE LOG</span></div><span className="jarvis-log-live"><i /> LIVE</span></div>
-            <div className="jarvis-log-body">{LOG_LINES.map((line, index) => <div key={line} className="jarvis-log-line" style={{ animationDelay: `${index * 180}ms` }}><span>{String(index + 1).padStart(2, '0')}</span><b>›</b>{line}</div>)}</div>
+          <section className="jarvis-intelligence-panel" aria-label="JARVIS live intelligence visualization">
+            <div className="jarvis-intelligence-grid" />
+            <div className="jarvis-intelligence-orb orb-a" /><div className="jarvis-intelligence-orb orb-b" /><div className="jarvis-intelligence-orb orb-c" />
+            <div className="jarvis-intelligence-caption"><i /> LIVE COGNITION</div>
+            <div className="jarvis-intelligence-sweep" />
           </section>
 
           <div className="jarvis-home-actions">
