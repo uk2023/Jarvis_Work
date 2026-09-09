@@ -17,7 +17,10 @@ export const TabHeader: React.FC<TabHeaderProps> = ({
   subtitle,
   controls,
 }) => (
-  <header className="trace-inspector-bar">
+  <header
+    className="trace-inspector-bar"
+    style={{ position: 'static', top: 'auto', bottom: 'auto', inset: 'auto', zIndex: 'auto' }}
+  >
     <div className="trace-inspector-brand">
       <div className="trace-inspector-icon trace-inspector-icon-live">
         <Icon size={19} />
