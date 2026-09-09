@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   Shield,
@@ -9,8 +9,11 @@ import {
   Cpu,
   Brain,
   Zap,
+  Orbit,
+  Command,
 } from 'lucide-react';
 import { AppTheme } from '../types';
+import '../styles/dashboard-tables.css';
 
 interface HomeScreenProps {
   theme: AppTheme;
@@ -21,9 +24,9 @@ interface HomeScreenProps {
 }
 
 const QUICK_PROMPTS = [
-  { label: 'Check status', icon: Zap, query: 'Show me current organism vitals and CPU status' },
-  { label: 'Memory recall', icon: Brain, query: 'Survey FAISS episodic memory for recent context' },
-  { label: 'Overnight learning', icon: Cpu, query: 'What was discovered during overnight idle learning?' },
+  { label: 'Check status', meta: 'SYSTEM', icon: Zap, query: 'Show me current organism vitals and CPU status' },
+  { label: 'Memory recall', meta: 'MEMORY', icon: Brain, query: 'Survey FAISS episodic memory for recent context' },
+  { label: 'Overnight learning', meta: 'LEARNING', icon: Cpu, query: 'What was discovered during overnight idle learning?' },
 ];
 
 export function HomeScreen({
@@ -36,6 +39,35 @@ export function HomeScreen({
   const isDark = theme === 'dark';
   const [prompt, setPrompt] = useState('');
   const [isListening, setIsListening] = useState(false);
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const resizePrompt = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const lineHeight = 24;
+    const maxHeight = lineHeight * 5;
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, lineHeight * 2), maxHeight)}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  };
+
+  useEffect(() => {
+    resizePrompt();
+  }, [prompt]);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const update = () => setIsKeyboardOpen(window.innerHeight - viewport.height > 120);
+    update();
+    viewport.addEventListener('resize', update);
+    viewport.addEventListener('scroll', update);
+    return () => {
+      viewport.removeEventListener('resize', update);
+      viewport.removeEventListener('scroll', update);
+    };
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,73 +96,81 @@ export function HomeScreen({
   };
 
   return (
-    <div className="h-full overflow-y-auto flex flex-col" style={{ backgroundColor: 'var(--jarvis-bg)', color: 'var(--jarvis-text)' }}>
-      <section className="flex-1 flex flex-col items-center justify-center px-6 py-12">
-        <div className="w-full max-w-xl flex flex-col items-center text-center">
-          <div className="relative w-16 h-16 mb-6 flex items-center justify-center rounded-full border" style={{ borderColor: 'var(--jarvis-border-strong)' }}>
-            <span className="absolute inline-flex h-2.5 w-2.5 rounded-full animate-ping opacity-40" style={{ backgroundColor: 'var(--jarvis-accent)' }} />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full" style={{ backgroundColor: 'var(--jarvis-accent)' }} />
+    <div className={`jarvis-home ${isKeyboardOpen ? 'keyboard-open' : ''} ${isDark ? 'jarvis-home-dark' : 'jarvis-home-light'}`}>
+      <div className="jarvis-space-field" aria-hidden="true">
+        <span className="jarvis-star s1" /><span className="jarvis-star s2" /><span className="jarvis-star s3" />
+        <span className="jarvis-nebula n1" /><span className="jarvis-nebula n2" />
+      </div>
+
+      <main className="jarvis-home-main">
+        <div className="jarvis-home-content">
+          <div className="jarvis-black-hole" aria-label="JARVIS core">
+            <div className="jarvis-orbit orbit-a" />
+            <div className="jarvis-orbit orbit-b" />
+            <div className="jarvis-orbit orbit-c" />
+            <div className="jarvis-core-glow" />
+            <div className="jarvis-core-void"><span /><span /><span /></div>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight mb-2">Hi, I'm JARVIS</h1>
-          <p className="text-base mb-10" style={{ color: 'var(--jarvis-text-muted)' }}>Ask me anything -- Hinglish is fine too.</p>
+          <div className="jarvis-identity">
+            <div className="jarvis-eyebrow"><Orbit size={12} /> JARVIS COGNITIVE OS <span>•</span> ONLINE</div>
+            <h1>Hi, I'm JARVIS</h1>
+            <p>Intelligent, local-first cognition — ready when you are.</p>
+          </div>
 
           <form
             onSubmit={handleSubmit}
-            className="w-full rounded-2xl border p-3 text-left transition-colors focus-within:border-[var(--jarvis-accent)]"
+            className="jarvis-composer"
             style={{ backgroundColor: 'var(--jarvis-surface)', borderColor: 'var(--jarvis-border)' }}
           >
             <textarea
+              ref={textareaRef}
               value={prompt}
               onChange={e => setPrompt(e.target.value)}
+              onFocus={() => setIsKeyboardOpen(window.innerHeight - (window.visualViewport?.height || window.innerHeight) > 120)}
               onKeyDown={handleKeyDown}
               rows={2}
+              maxLength={4000}
               placeholder="Message JARVIS..."
-              className="w-full bg-transparent resize-none outline-none text-base"
+              aria-label="Message JARVIS"
+              className="jarvis-prompt-input"
               style={{ color: 'var(--jarvis-text)' }}
             />
-            <div className="flex items-center justify-between pt-2 mt-1 border-t" style={{ borderColor: 'var(--jarvis-border)' }}>
-              <span className="text-xs flex items-center gap-1.5" style={{ color: 'var(--jarvis-text-muted)' }}><Sparkles size={13} />Native-first</span>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className="w-9 h-9 rounded-full flex items-center justify-center transition-colors" style={isListening ? { backgroundColor: 'var(--jarvis-danger)', color: 'white' } : { color: 'var(--jarvis-text-muted)' }}>
+            <div className="jarvis-composer-footer" style={{ borderColor: 'var(--jarvis-border)' }}>
+              <span className="jarvis-native-badge"><Sparkles size={12} /> Native-first</span>
+              <div className="flex items-center gap-1.5">
+                <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className="jarvis-composer-icon" style={isListening ? { backgroundColor: 'var(--jarvis-danger)', color: 'white' } : { color: 'var(--jarvis-text-muted)' }}>
                   {isListening ? <MicOff size={16} /> : <Mic size={16} />}
                 </button>
-                <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="w-9 h-9 rounded-full flex items-center justify-center transition-transform disabled:cursor-not-allowed" style={{ backgroundColor: prompt.trim() ? 'var(--jarvis-accent)' : 'var(--jarvis-border)', color: prompt.trim() ? 'white' : 'var(--jarvis-text-muted)' }}>
-                  <ArrowUp size={16} />
+                <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="jarvis-send-button" style={{ backgroundColor: prompt.trim() ? 'var(--jarvis-accent)' : 'var(--jarvis-border)', color: prompt.trim() ? 'white' : 'var(--jarvis-text-muted)' }}>
+                  <ArrowUp size={17} />
                 </button>
               </div>
             </div>
           </form>
 
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          <div className="jarvis-quick-rail" aria-label="JARVIS quick actions">
             {QUICK_PROMPTS.map(item => {
               const Icon = item.icon;
               return (
-                <button key={item.label} type="button" onClick={() => onStartChatWithPrompt(item.query)} className="px-3 py-1.5 rounded-full border text-sm transition-colors flex items-center gap-1.5" style={{ borderColor: 'var(--jarvis-border)', backgroundColor: 'var(--jarvis-surface)', color: 'var(--jarvis-text-muted)' }}>
-                  <Icon size={13} style={{ color: 'var(--jarvis-accent)' }} />{item.label}
+                <button key={item.label} type="button" onClick={() => onStartChatWithPrompt(item.query)} className="jarvis-quick-card">
+                  <span className="jarvis-quick-icon"><Icon size={14} /></span>
+                  <span className="jarvis-quick-copy"><small>{item.meta}</small><strong>{item.label}</strong></span>
                 </button>
               );
             })}
           </div>
 
-          <div className="mt-8">
+          <div className="jarvis-home-actions">
             {isAdmin ? (
-              <button onClick={() => onNavigateToView('dashboard')} className="text-sm hover:underline flex items-center gap-1.5" style={{ color: 'var(--jarvis-accent)' }}>
-                <Activity size={14} />Open systems dashboard
-              </button>
+              <button onClick={() => onNavigateToView('dashboard')}><Activity size={13} /> Open systems dashboard</button>
             ) : (
-              <button onClick={onOpenAuth} className="text-sm flex items-center gap-1.5 transition-colors" style={{ color: 'var(--jarvis-text-muted)' }}>
-                <Shield size={14} />Operator sign in
-              </button>
+              <button onClick={onOpenAuth}><Shield size={13} /> Operator sign in</button>
             )}
+            <span><Command size={11} /> ENTER TO SEND</span>
           </div>
         </div>
-      </section>
-
-      <footer className="shrink-0 py-3.5 px-6 text-center border-t" style={{ color: 'var(--jarvis-text-muted)', borderColor: 'var(--jarvis-border)', backgroundColor: 'var(--jarvis-surface-raised)' }} aria-label="JARVIS credits">
-        <div className="text-[11px] sm:text-xs font-semibold tracking-[.08em]" style={{ color: 'var(--jarvis-text)' }}>JARVIS CORE [v08.26] • ©2026</div>
-        <div className="mt-1 text-[9px] sm:text-[10px] tracking-[.04em]">Developed with ♥ by UK</div>
-      </footer>
+      </main>
     </div>
   );
 }
