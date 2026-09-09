@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Activity, Shield, Sparkles, ArrowUp, Mic, MicOff, Cpu, Brain, Zap, Command, Radio, Terminal } from 'lucide-react';
+import { Sparkles, ArrowUp, Mic, MicOff, Terminal } from 'lucide-react';
 import { AppTheme } from '../types';
 import '../styles/dashboard-tables.css';
 import '../styles/jarvis-home.css';
@@ -12,13 +12,7 @@ interface HomeScreenProps {
   onOpenAuth: () => void;
 }
 
-const QUICK_PROMPTS = [
-  { label: 'Status', meta: 'SYSTEM', icon: Zap, query: 'Show me current organism vitals and CPU status' },
-  { label: 'Memory', meta: 'RECALL', icon: Brain, query: 'Survey FAISS episodic memory for recent context' },
-  { label: 'Learning', meta: 'DISCOVER', icon: Cpu, query: 'What was discovered during overnight idle learning?' },
-];
-
-export function HomeScreen({ theme, onNavigateToView, onStartChatWithPrompt, isAdmin, onOpenAuth }: HomeScreenProps) {
+export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   const isDark = theme === 'dark';
   const [prompt, setPrompt] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -29,13 +23,21 @@ export function HomeScreen({ theme, onNavigateToView, onStartChatWithPrompt, isA
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
-    const update = () => setIsKeyboardOpen(window.innerHeight - viewport.height > 120);
+
+    const update = () => {
+      const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
+      const open = keyboardOffset > 120;
+      setIsKeyboardOpen(open);
+      document.documentElement.style.setProperty('--jarvis-keyboard-offset', `${open ? keyboardOffset : 0}px`);
+    };
+
     update();
     viewport.addEventListener('resize', update);
     viewport.addEventListener('scroll', update);
     return () => {
       viewport.removeEventListener('resize', update);
       viewport.removeEventListener('scroll', update);
+      document.documentElement.style.removeProperty('--jarvis-keyboard-offset');
     };
   }, []);
 
@@ -73,26 +75,35 @@ export function HomeScreen({ theme, onNavigateToView, onStartChatWithPrompt, isA
         setIsListening(false);
         textareaRef.current?.focus();
       }, 1800);
-    } else setIsListening(false);
+    } else {
+      setIsListening(false);
+    }
   };
 
   return (
     <div className={`jarvis-home ${isKeyboardOpen ? 'keyboard-open' : ''} ${isDark ? 'jarvis-home-dark' : 'jarvis-home-light'}`}>
       <div className="jarvis-space-field" aria-hidden="true">
-        <span className="jarvis-star s1" /><span className="jarvis-star s2" /><span className="jarvis-star s3" /><span className="jarvis-star s4" />
-        <span className="jarvis-nebula n1" /><span className="jarvis-nebula n2" />
-        <div className="jarvis-intelligence-wave wave-a" /><div className="jarvis-intelligence-wave wave-b" /><div className="jarvis-intelligence-wave wave-c" />
+        <span className="jarvis-star s1" />
+        <span className="jarvis-star s2" />
+        <span className="jarvis-star s3" />
+        <span className="jarvis-star s4" />
+        <span className="jarvis-nebula n1" />
+        <span className="jarvis-nebula n2" />
       </div>
 
       <main className="jarvis-home-main">
         <div className="jarvis-home-content">
           <section className="jarvis-hero">
             <div className="jarvis-black-hole" aria-label="JARVIS cognitive core">
-              <div className="jarvis-orbit orbit-a" /><div className="jarvis-orbit orbit-b" /><div className="jarvis-orbit orbit-c" />
-              <div className="jarvis-accretion" /><div className="jarvis-core-glow" /><div className="jarvis-core-void"><span /><span /><span /></div>
+              <div className="jarvis-orbit orbit-a" />
+              <div className="jarvis-orbit orbit-b" />
+              <div className="jarvis-orbit orbit-c" />
+              <div className="jarvis-accretion" />
+              <div className="jarvis-core-glow" />
+              <div className="jarvis-core-void"><span /><span /><span /></div>
             </div>
+
             <div className="jarvis-identity">
-              <div className="jarvis-eyebrow"><Radio size={10} /> COGNITIVE OS <span>•</span> ONLINE</div>
               <h1>JARVIS</h1>
               <p>Namaste! Aaj kya help karu?</p>
             </div>
@@ -127,31 +138,18 @@ export function HomeScreen({ theme, onNavigateToView, onStartChatWithPrompt, isA
                 </div>
               </div>
             </form>
-
-            <div className={`jarvis-quick-rail ${isKeyboardOpen ? 'is-hidden' : ''}`} aria-label="JARVIS quick actions">
-              {QUICK_PROMPTS.map(item => {
-                const Icon = item.icon;
-                return (
-                  <button key={item.label} type="button" onClick={() => onStartChatWithPrompt(item.query)} className="jarvis-quick-card" aria-label={`${item.label} quick action`}>
-                    <span className="jarvis-quick-icon"><Icon size={17} /></span>
-                    <span className="jarvis-quick-copy"><small>{item.meta}</small><strong>{item.label}</strong></span>
-                  </button>
-                );
-              })}
-            </div>
           </section>
 
-          <section className="jarvis-intelligence-panel" aria-label="JARVIS live intelligence visualization">
+          <section className="jarvis-intelligence-panel" aria-label="JARVIS ambient intelligence visualization">
             <div className="jarvis-intelligence-grid" />
-            <div className="jarvis-intelligence-orb orb-a" /><div className="jarvis-intelligence-orb orb-b" /><div className="jarvis-intelligence-orb orb-c" />
-            <div className="jarvis-intelligence-caption"><i /> LIVE COGNITION</div>
+            <div className="jarvis-intelligence-wave wave-a" />
+            <div className="jarvis-intelligence-wave wave-b" />
+            <div className="jarvis-intelligence-wave wave-c" />
+            <div className="jarvis-intelligence-orb orb-a" />
+            <div className="jarvis-intelligence-orb orb-b" />
+            <div className="jarvis-intelligence-orb orb-c" />
             <div className="jarvis-intelligence-sweep" />
           </section>
-
-          <div className="jarvis-home-actions">
-            {isAdmin ? <button onClick={() => onNavigateToView('dashboard')}><Activity size={13} /> Open systems dashboard</button> : <button onClick={onOpenAuth}><Shield size={13} /> Operator sign in</button>}
-            <span><Command size={11} /> ENTER TO SEND</span>
-          </div>
         </div>
       </main>
     </div>
