@@ -1,0 +1,52 @@
+/* Shared dashboard table tokens — always follow the global JARVIS light/dark theme. */
+.dashboard-table-surface {
+  --dashboard-table-bg: var(--jarvis-surface);
+  --dashboard-table-header: var(--jarvis-surface-raised);
+  --dashboard-table-text: var(--jarvis-text);
+  --dashboard-table-muted: var(--jarvis-text-muted);
+  --dashboard-table-border: var(--jarvis-border);
+  --dashboard-table-hover: color-mix(in srgb, var(--jarvis-accent) 5%, var(--dashboard-table-bg));
+  background: var(--dashboard-table-bg);
+  color: var(--dashboard-table-text);
+  border-color: var(--dashboard-table-border);
+}
+.dashboard-table-header {
+  background: var(--dashboard-table-header);
+  color: var(--dashboard-table-muted);
+  border-color: var(--dashboard-table-border);
+}
+.dashboard-table-row {
+  color: var(--dashboard-table-text);
+  border-color: var(--dashboard-table-border);
+}
+.dashboard-table-row:hover { background: var(--dashboard-table-hover); }
+.dashboard-table-cell-divider { border-color: var(--dashboard-table-border); }
+.dashboard-table-muted { color: var(--dashboard-table-muted); }
+.dashboard-table-body {
+  overflow: hidden;
+}
+.dashboard-table-fixed-cell {
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  display: flex;
+  align-items: center;
+}
+.dashboard-table-message {
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-align: justify;
+  text-justify: inter-word;
+}
+.dashboard-table-center {
+  text-align: center;
+  justify-content: center;
+}
