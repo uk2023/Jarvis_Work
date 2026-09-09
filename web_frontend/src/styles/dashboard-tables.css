@@ -56,26 +56,21 @@
   border-top:1px solid var(--jarvis-border);
   backdrop-filter:blur(10px);
 }
-#app-root::after::first-line { font-weight:800; color:var(--jarvis-text); }
 
-/* Cognitive-state: 1.5x nodes, larger center, circular orbital placement and richer 3D energy. */
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(3),
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(4),
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(5),
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(6) { width:45px!important; height:45px!important; margin:0!important; }
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(3) { animation:cognitive-node-breathe 2.2s ease-in-out infinite!important; }
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(4) { animation:cognitive-node-breathe 2.2s ease-in-out infinite .15s!important; }
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(5) { animation:cognitive-node-breathe 2.2s ease-in-out infinite .3s!important; }
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(6) { animation:cognitive-node-breathe 2.2s ease-in-out infinite .45s!important; }
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(7) { width:102px!important; height:102px!important; }
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(3) svg,
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(4) svg,
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(5) svg,
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(6) svg { width:13px!important; height:13px!important; }
-#card-cognitive-pipeline .relative.mx-auto > div:nth-of-type(7) svg { width:26px!important; height:26px!important; }
+/* Cognitive-state: 1.5x nodes, circular orbital placement and richer 3D / black-hole energy. */
+#card-cognitive-pipeline .relative.mx-auto { min-height:286px; }
+.cognitive-orbit { animation:cognitive-orbit-spin 18s linear infinite; transform-origin:50% 50%; }
+.cognitive-orbit-node { animation:cognitive-node-breathe 2.2s ease-in-out infinite; transform-origin:50% 50%; }
+.cognitive-orbit-node-0 { left:50%; top:0; transform:translate(-50%,-50%); }
+.cognitive-orbit-node-1 { right:0; top:50%; transform:translate(50%,-50%); }
+.cognitive-orbit-node-2 { left:50%; bottom:0; transform:translate(-50%,50%); }
+.cognitive-orbit-node-3 { left:0; top:50%; transform:translate(-50%,-50%); }
+.cognitive-orbit-node-core { display:flex; align-items:center; justify-content:center; width:100%; height:100%; animation:cognitive-node-counter 18s linear infinite; }
+@keyframes cognitive-orbit-spin { to { transform:rotate(360deg); } }
+@keyframes cognitive-node-counter { to { transform:rotate(-360deg); } }
 @keyframes cognitive-node-breathe {
-  0%,100% { transform:scale(.97); filter:saturate(.95) brightness(.95); }
-  50% { transform:scale(1.06); filter:saturate(1.3) brightness(1.2); }
+  0%,100% { filter:saturate(.95) brightness(.95); }
+  50% { filter:saturate(1.35) brightness(1.22); }
 }
 
 #self-improvement-list { background:var(--jarvis-surface)!important; color:var(--jarvis-text)!important; border-color:var(--jarvis-border)!important; border-radius:16px!important; box-shadow:0 8px 24px rgba(0,0,0,.10); }
