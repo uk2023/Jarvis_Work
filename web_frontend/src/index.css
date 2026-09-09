@@ -1,8 +1,6 @@
 @import "tailwindcss";
 
 @theme {
-  /* A deliberate, named brand color -- not Tailwind's stock cyan-400/
-     500. Used as bg-brand-500, text-brand-400, border-brand-600, etc. */
   --color-brand-50: #eef3fe;
   --color-brand-100: #dbe6fd;
   --color-brand-200: #b9cdfa;
@@ -16,18 +14,6 @@
   --color-brand-950: #101a38;
 }
 
-/* ============================================================
-   JARVIS Design System -- BOTH light and dark variants of every
-   token, toggled by the .dark class on <html> (see App.tsx's
-   documentElement.classList.add('dark')). The previous version of
-   this file only ever defined dark values -- in light mode every
-   `var(--jarvis-*)` reference silently resolved to nothing, which is
-   exactly why headers/logos/sidebar text looked wrong specifically
-   in light mode: the color was never actually set, so it fell back
-   to whatever happened to inherit, clashing with light backgrounds.
-   ============================================================ */
-
-/* Tailwind v4: JARVIS uses an explicit .dark class, not OS preference. */
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
@@ -224,7 +210,6 @@ html, body { background: var(--jarvis-bg); color: var(--jarvis-text); }
   .trace-flow-label { font-size:8px; }
 }
 
-
 /* Trace Inspector shell — locked, polished, theme-aware */
 .trace-inspector-page { height:100%; min-height:0; overflow:auto; padding:12px; color:var(--jarvis-text); background:var(--jarvis-bg); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; overscroll-behavior:contain; }
 .trace-inspector-bar { position:sticky; top:0; z-index:30; display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:64px;padding:10px 12px;border:1px solid var(--jarvis-border);border-radius:16px;background:color-mix(in srgb,var(--jarvis-surface) 94%,transparent);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 12px 30px color-mix(in srgb,#0f172a 8%,transparent); }
@@ -252,6 +237,7 @@ html.dark .trace-inspector-bar { box-shadow:0 12px 30px rgba(0,0,0,.22); }
 .trace-action-btn:hover:not(:disabled) { transform:translateY(-1px);color:var(--jarvis-accent-strong);border-color:color-mix(in srgb,var(--jarvis-accent) 40%,var(--jarvis-border));background:var(--jarvis-accent-dim); }
 .trace-action-btn:disabled { opacity:.45;cursor:not-allowed; }
 .trace-refresh { width:38px;padding:0; }
+.trace-tab-control { display:flex;align-items:center;height:38px;padding:0 10px;border:1px solid var(--jarvis-border);border-radius:11px;background:var(--jarvis-surface-raised);color:var(--jarvis-text-muted);box-shadow:0 2px 8px color-mix(in srgb,#0f172a 4%,transparent);font:800 8px/1 ui-monospace,monospace;white-space:nowrap; }
 .trace-inspector-main { max-width:1180px;margin:8px auto 0;padding-bottom:30px; }
 .trace-empty { min-height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border:1px dashed var(--jarvis-border-strong);border-radius:16px;color:var(--jarvis-text-muted);background:var(--jarvis-surface); }
 .trace-empty strong { color:var(--jarvis-text);font:900 11px/1 ui-monospace,monospace;letter-spacing:.1em; }
@@ -268,12 +254,13 @@ html.dark .trace-inspector-bar { box-shadow:0 12px 30px rgba(0,0,0,.22); }
   .trace-inspector-heading p { white-space:nowrap; }
   .trace-action-btn { width:38px;padding:0; }
   .trace-inspector-main { margin-top:7px; }
+  .trace-tab-control { min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis; }
 }
 @media(max-width:420px) {
   .trace-inspector-heading h1 { font-size:12px; }
   .trace-inspector-heading p { font-size:7px; }
   .trace-inspector-icon { width:37px;height:37px; }
-  .trace-select-wrap,.trace-turn-window,.trace-refresh { height:36px; }
+  .trace-select-wrap,.trace-turn-window,.trace-refresh,.trace-tab-control { height:36px; }
   .trace-select-wrap select { font-size:8px; }
   .trace-turn-window { grid-column:2; }
   .trace-turn-window select { font-size:7px; }
