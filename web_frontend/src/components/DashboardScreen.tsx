@@ -31,6 +31,7 @@ export function DashboardScreen({ onSelectTurn, theme, activeSection = 'monitor'
   const [history, setHistory] = useState<ActivityHistoryItem[]>([]);
   const [pollIntervalMs, setPollIntervalMs] = useState(2000);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSyncAnimating, setIsSyncAnimating] = useState(false);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
   const [currentSection, setCurrentSection] = useState<'monitor' | 'memory' | 'reasoning' | 'organs' | 'all'>(activeSection);
   const [expandedTable, setExpandedTable] = useState<'activity' | 'logs' | null>(null);
@@ -39,6 +40,9 @@ export function DashboardScreen({ onSelectTurn, theme, activeSection = 'monitor'
   useEffect(() => setCurrentSection(activeSection), [activeSection]);
 
   const fetchDashboardData = async () => {
+    const animationDuration = Math.max(800, pollIntervalMs || 2000);
+    setIsSyncAnimating(true);
+    window.setTimeout(() => setIsSyncAnimating(false), animationDuration);
     try {
       setIsRefreshing(true);
       const [stateRes, resRes, histRes] = await Promise.all([api.getLiveState(), api.getResources(), api.getActivityHistory()]);
@@ -68,7 +72,7 @@ export function DashboardScreen({ onSelectTurn, theme, activeSection = 'monitor'
     <select value={pollIntervalMs} onChange={e => setPollIntervalMs(Number(e.target.value))} className="trace-tab-control cursor-pointer outline-none">
       <option value={1000}>POLL: 1s</option><option value={2000}>POLL: 2s</option><option value={5000}>POLL: 5s</option><option value={0}>POLL: PAUSED</option>
     </select>
-    <button onClick={fetchDashboardData} disabled={isRefreshing} className="trace-action-btn dashboard-sync-button flex items-center justify-center p-2" title="Sync now" aria-label="Sync now"><RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : 'animate-[spin_3s_linear_infinite]'}`} /></button>
+    <button onClick={fetchDashboardData} disabled={isRefreshing} className={`trace-action-btn dashboard-sync-button flex items-center justify-center p-2 ${isSyncAnimating ? 'is-syncing' : ''}`} style={{ '--sync-duration': `${Math.max(800, pollIntervalMs || 2000)}ms` } as React.CSSProperties} title="Sync now" aria-label="Sync now"><RefreshCw className="h-3.5 w-3.5" /></button>
   </>;
 
   const expandButton = (table: 'activity' | 'logs') => <button onClick={() => setExpandedTable(table)} className={`p-1.5 border rounded-md flex items-center justify-center text-[8px] font-bold shrink-0 ${isDark ? 'bg-white/5 hover:bg-white/10 border-white/10 text-[#8eb3ff]' : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-[#315fbe]'}`} title="Expand table" aria-label="Expand table"><Maximize2 className="w-3 h-3" /></button>;
