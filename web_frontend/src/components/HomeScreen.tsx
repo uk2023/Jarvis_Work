@@ -23,31 +23,106 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaTouchingRef = useRef(false);
 
+  // Landing-page keyboard state must react to resize only. Android can emit
+  // visualViewport scroll events while the textarea reaches an edge; using
+  // those events to change the composer offset makes the whole input box slide.
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
+
     const update = () => {
       const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
       const open = keyboardOffset > 120;
       setIsKeyboardOpen(open);
-      document.documentElement.style.setProperty('--jarvis-keyboard-offset', `${open ? keyboardOffset : 0}px`);
+
+      // The fixed landing composer is already positioned against the visual
+      // viewport on Android. Never apply the visualViewport height delta as a
+      // bottom offset; that double-lifts the composer above the keyboard.
+      document.documentElement.style.setProperty('--jarvis-keyboard-offset', '0px');
       document.documentElement.style.setProperty('--jarvis-visual-height', `${viewport.height}px`);
+
       const composerHeight = composerRef.current?.getBoundingClientRect().height ?? 0;
       const available = Math.max(0, viewport.height - 56 - composerHeight - 16);
       const heroScale = open ? Math.max(0.18, Math.min(0.46, (available / 420) * 0.46)) : 1;
       document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
     };
+
     update();
     viewport.addEventListener('resize', update);
-    viewport.addEventListener('scroll', update);
     return () => {
       viewport.removeEventListener('resize', update);
-      viewport.removeEventListener('scroll', update);
       document.documentElement.style.removeProperty('--jarvis-keyboard-offset');
       document.documentElement.style.removeProperty('--jarvis-visual-height');
       document.documentElement.style.removeProperty('--jarvis-composer-height');
       document.documentElement.style.removeProperty('--jarvis-keyboard-hero-scale');
+    };
+  }, []);
+
+  // Own the mobile textarea gesture ourselves. This prevents Android from
+  // handing an edge-reaching textarea swipe to the page/visual viewport.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+
+    let lastY = 0;
+    const onStart = (event: TouchEvent) => {
+      textareaTouchingRef.current = true;
+      lastY = event.touches[0]?.clientY ?? 0;
+      event.stopPropagation();
+    };
+    const onMove = (event: TouchEvent) => {
+      const y = event.touches[0]?.clientY;
+      if (y == null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const delta = lastY - y;
+      if (delta) {
+        const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+        el.scrollTop = Math.max(0, Math.min(maxScroll, el.scrollTop + delta));
+      }
+      lastY = y;
+    };
+    const onEnd = (event: TouchEvent) => {
+      event.stopPropagation();
+      textareaTouchingRef.current = false;
+    };
+
+    el.addEventListener('touchstart', onStart, { passive: false });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd, { passive: false });
+    el.addEventListener('touchcancel', onEnd, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', onEnd);
+    };
+  }, [isExpanded]);
+
+  // Hard-lock the landing document while this screen is mounted so the
+  // composer itself is the only element allowed to move during a textarea
+  // gesture. The textarea gesture above handles its own scrollTop.
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const root = document.getElementById('root');
+    const previous = {
+      htmlOverflow: html.style.overflow,
+      bodyOverflow: body.style.overflow,
+      bodyOverscroll: body.style.overscrollBehavior,
+      rootOverflow: root?.style.overflow || '',
+    };
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    body.style.overscrollBehavior = 'none';
+    if (root) root.style.overflow = 'hidden';
+    return () => {
+      html.style.overflow = previous.htmlOverflow;
+      body.style.overflow = previous.bodyOverflow;
+      body.style.overscrollBehavior = previous.bodyOverscroll;
+      if (root) root.style.overflow = previous.rootOverflow;
     };
   }, []);
 
@@ -63,7 +138,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight);
     el.style.setProperty('height', `${nextHeight}px`, 'important');
     el.style.setProperty('overflow-y', contentHeight > maxHeight ? 'auto' : 'hidden', 'important');
-    // Expand appears only when the fourth visible line is needed.
     setShowExpand(contentHeight > lineHeight * 3 + 1);
   }, [prompt, isExpanded]);
 
@@ -159,7 +233,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
                   <input ref={fileInputRef} type="file" hidden onChange={handleFilePick} />
                 </div>
                 <div className="jarvis-command-actions">
-                  {/* Keep a permanent 34px expand slot so showing the button never reflows the composer. */}
                   <button type="button" onClick={toggleExpand} aria-label={isExpanded ? 'Close expanded message box' : 'Expand message box'} title={isExpanded ? 'Close expanded composer' : 'Expand composer'} className={`jarvis-composer-icon jarvis-expand-button ${isExpanded ? 'is-active' : ''} ${!showExpand && !isExpanded ? 'is-placeholder' : ''}`} tabIndex={showExpand || isExpanded ? 0 : -1} aria-hidden={!showExpand && !isExpanded}>{isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
                   <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon jarvis-mic-button ${isListening ? 'is-listening' : ''}`}><Mic size={16} /></button>
                   <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="jarvis-send-button"><ArrowUp size={17} /></button>
