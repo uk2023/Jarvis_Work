@@ -34,8 +34,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const visualHeight = viewport?.height ?? window.innerHeight;
       const keyboardOffset = Math.max(0, window.innerHeight - visualHeight);
       const focused = document.activeElement === textareaRef.current;
-      // A focused textarea is the reliable start signal on Android. Once the
-      // visual viewport reports the IME closing, resize/scroll settles the state.
       const open = keyboardOffset > 80 || (focused && keyboardOffset > 24);
 
       setIsKeyboardOpen(open);
@@ -49,11 +47,16 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     };
 
     const handleFocus = () => {
-      // Android can deliver focus before visualViewport reports the keyboard.
-      // Activate the keyboard layout immediately so the hero shrinks and the
-      // greeting hides without waiting for a viewport resize event.
+      // Android may focus the textarea before visualViewport reports the IME.
+      // Do not call update() here because it can immediately overwrite the
+      // freshly-open state when keyboardOffset is still zero.
       setIsKeyboardOpen(true);
-      update();
+      const visualHeight = viewport?.height ?? window.innerHeight;
+      const composerHeight = composerRef.current?.getBoundingClientRect().height ?? 0;
+      document.documentElement.style.setProperty('--jarvis-visual-height', `${visualHeight}px`);
+      document.documentElement.style.setProperty('--jarvis-composer-height', `${Math.ceil(composerHeight)}px`);
+      document.documentElement.style.setProperty('--jarvis-keyboard-offset', '0px');
+      document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', '0.40');
     };
 
     const settleAfterKeyboard = () => {
