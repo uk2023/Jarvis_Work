@@ -63,7 +63,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight);
     el.style.setProperty('height', `${nextHeight}px`, 'important');
     el.style.setProperty('overflow-y', contentHeight > maxHeight ? 'auto' : 'hidden', 'important');
-    // Show only when a fourth visible line is actually needed.
+    // Expand appears only when the fourth visible line is needed.
     setShowExpand(contentHeight > lineHeight * 3 + 1);
   }, [prompt, isExpanded]);
 
@@ -159,8 +159,9 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
                   <input ref={fileInputRef} type="file" hidden onChange={handleFilePick} />
                 </div>
                 <div className="jarvis-command-actions">
-                  {showExpand && <button type="button" onClick={toggleExpand} aria-label={isExpanded ? 'Close expanded message box' : 'Expand message box'} title={isExpanded ? 'Close expanded composer' : 'Expand composer'} className={`jarvis-composer-icon jarvis-expand-button ${isExpanded ? 'is-active' : ''}`}>{isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>}
-                  <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon jarvis-mic-button ${isListening ? 'is-listening' : ''}`}>{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button>
+                  {/* Keep a permanent 34px expand slot so showing the button never reflows the composer. */}
+                  <button type="button" onClick={toggleExpand} aria-label={isExpanded ? 'Close expanded message box' : 'Expand message box'} title={isExpanded ? 'Close expanded composer' : 'Expand composer'} className={`jarvis-composer-icon jarvis-expand-button ${isExpanded ? 'is-active' : ''} ${!showExpand && !isExpanded ? 'is-placeholder' : ''}`} tabIndex={showExpand || isExpanded ? 0 : -1} aria-hidden={!showExpand && !isExpanded}>{isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
+                  <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon jarvis-mic-button ${isListening ? 'is-listening' : ''}`}><Mic size={16} /></button>
                   <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="jarvis-send-button"><ArrowUp size={17} /></button>
                 </div>
               </div>
