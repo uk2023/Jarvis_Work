@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Maximize2, Minimize2, Mic, MicOff, Plus } from 'lucide-react';
+import { ArrowUp, Maximize2, Minimize2, Mic, Plus } from 'lucide-react';
 import { AppTheme } from '../types';
 import '../styles/dashboard-tables.css';
 import '../styles/jarvis-home.css';
@@ -88,10 +88,20 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
 
   useEffect(() => {
     const el = textareaRef.current;
-    if (!el || isExpanded) return;
+    if (!el) return;
+
+    if (isExpanded) {
+      // Expanded mode owns the whole available input area. Remove the normal-mode
+      // fixed height so the textarea can render/scroll through the entire expanded panel.
+      el.style.removeProperty('height');
+      el.style.removeProperty('overflow-y');
+      setShowExpand(true);
+      return;
+    }
+
     const lineHeight = 24;
     const minHeight = lineHeight * 2;
-    const maxHeight = lineHeight * 5;
+    const maxHeight = lineHeight * 6;
     el.style.setProperty('height', `${minHeight}px`, 'important');
     el.style.setProperty('overflow-y', 'hidden', 'important');
     const contentHeight = el.scrollHeight;
@@ -110,8 +120,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const viewport = window.visualViewport;
       if (viewport) {
         const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
-        const focused = document.activeElement === textareaRef.current;
-        const open = keyboardOffset > 80 || (focused && keyboardOffset > 24);
+        const open = keyboardOffset > 80 || document.activeElement === textareaRef.current;
         const available = Math.max(0, viewport.height - 56 - height - 16);
         const heroScale = open ? Math.max(0.18, Math.min(0.40, (available / 420) * 0.40)) : 1;
         document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
