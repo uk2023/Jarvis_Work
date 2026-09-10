@@ -34,8 +34,8 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const visualHeight = viewport?.height ?? window.innerHeight;
       const keyboardOffset = Math.max(0, window.innerHeight - visualHeight);
       const focused = document.activeElement === textareaRef.current;
-      // Focus alone must not keep the keyboard-open layout alive after Android hides IME.
-      // visualViewport is the source of truth; focus only helps during the keyboard transition.
+      // A focused textarea is the reliable start signal on Android. Once the
+      // visual viewport reports the IME closing, resize/scroll settles the state.
       const open = keyboardOffset > 80 || (focused && keyboardOffset > 24);
 
       setIsKeyboardOpen(open);
@@ -46,6 +46,14 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const available = Math.max(0, visualHeight - 56 - composerHeight - 16);
       const heroScale = open ? Math.max(0.18, Math.min(0.40, (available / 420) * 0.40)) : 1;
       document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
+    };
+
+    const handleFocus = () => {
+      // Android can deliver focus before visualViewport reports the keyboard.
+      // Activate the keyboard layout immediately so the hero shrinks and the
+      // greeting hides without waiting for a viewport resize event.
+      setIsKeyboardOpen(true);
+      update();
     };
 
     const settleAfterKeyboard = () => {
@@ -66,7 +74,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     window.addEventListener('orientationchange', settleAfterKeyboard);
     window.addEventListener('pageshow', update);
     document.addEventListener('visibilitychange', update);
-    textareaRef.current?.addEventListener('focus', update);
+    textareaRef.current?.addEventListener('focus', handleFocus);
     textareaRef.current?.addEventListener('blur', settleAfterKeyboard);
 
     return () => {
@@ -77,7 +85,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       window.removeEventListener('orientationchange', settleAfterKeyboard);
       window.removeEventListener('pageshow', update);
       document.removeEventListener('visibilitychange', update);
-      textareaRef.current?.removeEventListener('focus', update);
+      textareaRef.current?.removeEventListener('focus', handleFocus);
       textareaRef.current?.removeEventListener('blur', settleAfterKeyboard);
       document.documentElement.style.removeProperty('--jarvis-keyboard-offset');
       document.documentElement.style.removeProperty('--jarvis-visual-height');
@@ -91,8 +99,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     if (!el) return;
 
     if (isExpanded) {
-      // Expanded mode owns the whole available input area. Remove the normal-mode
-      // fixed height so the textarea can render/scroll through the entire expanded panel.
       el.style.removeProperty('height');
       el.style.removeProperty('overflow-y');
       setShowExpand(true);
