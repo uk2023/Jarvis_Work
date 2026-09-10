@@ -126,8 +126,8 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
             </div>
 
             <div className="jarvis-identity">
-              <h1>JARVIS</h1>
-              <p>Namaste! Aaj kya help karu?</p>
+              <h1>नमस्ते</h1>
+              <p>Aaj, Kya HELP Karu?</p>
             </div>
           </section>
 
@@ -171,17 +171,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
                 </div>
               </div>
             </form>
-          </section>
-
-          <section className="jarvis-intelligence-panel" aria-label="JARVIS ambient intelligence visualization">
-            <div className="jarvis-intelligence-grid" />
-            <div className="jarvis-intelligence-wave wave-a" />
-            <div className="jarvis-intelligence-wave wave-b" />
-            <div className="jarvis-intelligence-wave wave-c" />
-            <div className="jarvis-intelligence-orb orb-a" />
-            <div className="jarvis-intelligence-orb orb-b" />
-            <div className="jarvis-intelligence-orb orb-c" />
-            <div className="jarvis-intelligence-sweep" />
           </section>
         </div>
       </main>
