@@ -31,6 +31,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const open = keyboardOffset > 120;
       setIsKeyboardOpen(open);
       document.documentElement.style.setProperty('--jarvis-keyboard-offset', `${open ? keyboardOffset : 0}px`);
+      document.documentElement.style.setProperty('--jarvis-visual-height', `${viewport.height}px`);
     };
     update();
     viewport.addEventListener('resize', update);
@@ -39,6 +40,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       viewport.removeEventListener('resize', update);
       viewport.removeEventListener('scroll', update);
       document.documentElement.style.removeProperty('--jarvis-keyboard-offset');
+      document.documentElement.style.removeProperty('--jarvis-visual-height');
       document.documentElement.style.removeProperty('--jarvis-composer-height');
     };
   }, []);
@@ -94,7 +96,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   };
 
   return (
-    <div className={`jarvis-home ${isKeyboardOpen ? 'keyboard-open' : ''} ${isDark ? 'jarvis-home-dark' : 'jarvis-home-light'}`}>
+    <div className={`jarvis-home ${isKeyboardOpen ? 'keyboard-open' : ''} ${isExpanded ? 'composer-expanded' : ''} ${isDark ? 'jarvis-home-dark' : 'jarvis-home-light'}`}>
       <div className="jarvis-space-field" aria-hidden="true">
         <span className="jarvis-star s1" /><span className="jarvis-star s2" /><span className="jarvis-star s3" /><span className="jarvis-star s4" />
         <span className="jarvis-nebula n1" /><span className="jarvis-nebula n2" />
