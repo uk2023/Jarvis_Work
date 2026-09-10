@@ -23,6 +23,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const keyboardIntentRef = useRef(false);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -34,7 +35,9 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const visualHeight = viewport?.height ?? window.innerHeight;
       const keyboardOffset = Math.max(0, window.innerHeight - visualHeight);
       const focused = document.activeElement === textareaRef.current;
-      const open = keyboardOffset > 80 || (focused && keyboardOffset > 24);
+      // Keep the keyboard-open UI latched while Android transitions the IME.
+      // visualViewport can report the old height for several frames after focus.
+      const open = keyboardIntentRef.current || keyboardOffset > 80 || (focused && keyboardOffset > 24);
 
       setIsKeyboardOpen(open);
       document.documentElement.style.setProperty('--jarvis-keyboard-offset', `${open ? keyboardOffset : 0}px`);
@@ -42,14 +45,12 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const composerHeight = composerRef.current?.getBoundingClientRect().height ?? 0;
       document.documentElement.style.setProperty('--jarvis-composer-height', `${Math.ceil(composerHeight)}px`);
       const available = Math.max(0, visualHeight - 56 - composerHeight - 16);
-      const heroScale = open ? Math.max(0.18, Math.min(0.40, (available / 420) * 0.40)) : 1;
-      document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
+      const heroScale = open ? 0.40 : 1;
+      document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(Math.max(0.18, Math.min(0.40, heroScale))));
     };
 
     const handleFocus = () => {
-      // Android may focus the textarea before visualViewport reports the IME.
-      // Do not call update() here because it can immediately overwrite the
-      // freshly-open state when keyboardOffset is still zero.
+      keyboardIntentRef.current = true;
       setIsKeyboardOpen(true);
       const visualHeight = viewport?.height ?? window.innerHeight;
       const composerHeight = composerRef.current?.getBoundingClientRect().height ?? 0;
@@ -59,13 +60,18 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', '0.40');
     };
 
+    const handleBlur = () => {
+      keyboardIntentRef.current = false;
+      settleAfterKeyboard();
+    };
+
     const settleAfterKeyboard = () => {
       window.clearTimeout(settleTimer);
       let attempts = 0;
       const settle = () => {
         update();
         attempts += 1;
-        if (attempts < 8) settleTimer = window.setTimeout(settle, 80);
+        if (attempts < 10) settleTimer = window.setTimeout(settle, 80);
       };
       settle();
     };
@@ -78,7 +84,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     window.addEventListener('pageshow', update);
     document.addEventListener('visibilitychange', update);
     textareaRef.current?.addEventListener('focus', handleFocus);
-    textareaRef.current?.addEventListener('blur', settleAfterKeyboard);
+    textareaRef.current?.addEventListener('blur', handleBlur);
 
     return () => {
       window.clearTimeout(settleTimer);
@@ -89,7 +95,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       window.removeEventListener('pageshow', update);
       document.removeEventListener('visibilitychange', update);
       textareaRef.current?.removeEventListener('focus', handleFocus);
-      textareaRef.current?.removeEventListener('blur', settleAfterKeyboard);
+      textareaRef.current?.removeEventListener('blur', handleBlur);
       document.documentElement.style.removeProperty('--jarvis-keyboard-offset');
       document.documentElement.style.removeProperty('--jarvis-visual-height');
       document.documentElement.style.removeProperty('--jarvis-composer-height');
@@ -129,10 +135,10 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const viewport = window.visualViewport;
       if (viewport) {
         const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
-        const open = keyboardOffset > 80 || document.activeElement === textareaRef.current;
+        const open = keyboardIntentRef.current || keyboardOffset > 80 || document.activeElement === textareaRef.current;
         const available = Math.max(0, viewport.height - 56 - height - 16);
-        const heroScale = open ? Math.max(0.18, Math.min(0.40, (available / 420) * 0.40)) : 1;
-        document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
+        const heroScale = open ? 0.40 : 1;
+        document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(Math.max(0.18, Math.min(0.40, heroScale))));
       }
     };
     update();
