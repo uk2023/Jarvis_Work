@@ -41,16 +41,14 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       if (imeVisible) {
         imeWasVisibleRef.current = true;
       } else if (imeWasVisibleRef.current) {
-        // Android can keep the textarea focused after the Back gesture hides
-        // the IME. Once the viewport is restored, release the keyboard latch.
+        // Back/keyboard dismiss can leave the textarea focused. Clear focus too,
+        // so the focus fallback cannot immediately force the compact state again.
+        if (focused) textareaRef.current?.blur();
         keyboardIntentRef.current = false;
         imeWasVisibleRef.current = false;
       }
 
-      // During the initial focus transition, keep the hero compact until the
-      // viewport reports the IME. After a real IME dismissal, focus alone must
-      // never re-expand/re-shrink the landing hero.
-      const open = keyboardIntentRef.current || imeVisible || (focused && !imeWasVisibleRef.current);
+      const open = keyboardIntentRef.current || imeVisible;
 
       setIsKeyboardOpen(open);
       document.documentElement.style.setProperty('--jarvis-keyboard-offset', `${open ? keyboardOffset : 0}px`);
@@ -107,14 +105,12 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-
     if (isExpanded) {
       el.style.removeProperty('height');
       el.style.removeProperty('overflow-y');
       setShowExpand(true);
       return;
     }
-
     const lineHeight = 24;
     const minHeight = lineHeight * 2;
     const maxHeight = lineHeight * 6;
@@ -136,10 +132,8 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const viewport = window.visualViewport;
       if (viewport) {
         const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
-        const focused = document.activeElement === textareaRef.current;
-        const open = keyboardIntentRef.current || keyboardOffset > 80 || (focused && !imeWasVisibleRef.current);
-        const heroScale = open ? 0.40 : 1;
-        document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
+        const open = keyboardIntentRef.current || keyboardOffset > 80;
+        document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', open ? '0.40' : '1');
       }
     };
     update();
@@ -198,43 +192,8 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
         .jarvis-home:not(.keyboard-open) .jarvis-identity h1{font-size:37px!important;}
         .jarvis-home:not(.keyboard-open) .jarvis-identity p{font-size:26px!important;}
       }`}</style>
-      <div className="jarvis-space-field" aria-hidden="true">
-        <span className="jarvis-star s1" /><span className="jarvis-star s2" /><span className="jarvis-star s3" /><span className="jarvis-star s4" />
-        <span className="jarvis-nebula n1" /><span className="jarvis-nebula n2" />
-      </div>
-      <main className="jarvis-home-main">
-        <div className="jarvis-home-content">
-          <section className="jarvis-hero">
-            <div className="jarvis-black-hole" aria-label="JARVIS cognitive core">
-              <div className="jarvis-orbit orbit-a" /><div className="jarvis-orbit orbit-b" /><div className="jarvis-orbit orbit-c" />
-              <div className="jarvis-accretion" /><div className="jarvis-core-glow" />
-              <div className="jarvis-core-void"><span /><span /><span /></div>
-            </div>
-            <div className="jarvis-identity">
-              <h1>नमस्ते</h1>
-              <p>Aaj, Kya HELP Karu?</p>
-            </div>
-          </section>
-          <section className="jarvis-command-zone">
-            <form ref={composerRef} onSubmit={handleSubmit} className="jarvis-composer">
-              <div className="jarvis-input-wrap">
-                <textarea ref={textareaRef} value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={handleKeyDown} rows={2} maxLength={4000} placeholder="Message JARVIS..." aria-label="Message JARVIS" aria-multiline="true" className="jarvis-prompt-input" />
-              </div>
-              <div className="jarvis-composer-footer">
-                <div className="jarvis-composer-tools">
-                  <button type="button" onClick={() => fileInputRef.current?.click()} aria-label="Upload file" title="Upload file" className="jarvis-composer-icon jarvis-upload-button"><Plus size={17} /></button>
-                  <input ref={fileInputRef} type="file" hidden onChange={handleFilePick} />
-                </div>
-                <div className="jarvis-command-actions">
-                  <button type="button" onClick={toggleExpand} aria-label={isExpanded ? 'Close expanded message box' : 'Expand message box'} title={isExpanded ? 'Close expanded composer' : 'Expand composer'} className={`jarvis-composer-icon jarvis-expand-button ${isExpanded ? 'is-active' : ''} ${!showExpand && !isExpanded ? 'is-placeholder' : ''}`} tabIndex={showExpand || isExpanded ? 0 : -1} aria-hidden={!showExpand && !isExpanded}>{isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
-                  <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon jarvis-mic-button ${isListening ? 'is-listening' : ''}`}><Mic size={16} /></button>
-                  <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="jarvis-send-button"><ArrowUp size={17} /></button>
-                </div>
-              </div>
-            </form>
-          </section>
-        </div>
-      </main>
+      <div className="jarvis-space-field" aria-hidden="true"><span className="jarvis-star s1" /><span className="jarvis-star s2" /><span className="jarvis-star s3" /><span className="jarvis-star s4" /><span className="jarvis-nebula n1" /><span className="jarvis-nebula n2" /></div>
+      <main className="jarvis-home-main"><div className="jarvis-home-content"><section className="jarvis-hero"><div className="jarvis-black-hole" aria-label="JARVIS cognitive core"><div className="jarvis-orbit orbit-a" /><div className="jarvis-orbit orbit-b" /><div className="jarvis-orbit orbit-c" /><div className="jarvis-accretion" /><div className="jarvis-core-glow" /><div className="jarvis-core-void"><span /><span /><span /></div></div><div className="jarvis-identity"><h1>नमस्ते</h1><p>Aaj, Kya HELP Karu?</p></div></section><section className="jarvis-command-zone"><form ref={composerRef} onSubmit={handleSubmit} className="jarvis-composer"><div className="jarvis-input-wrap"><textarea ref={textareaRef} value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={handleKeyDown} rows={2} maxLength={4000} placeholder="Message JARVIS..." aria-label="Message JARVIS" aria-multiline="true" className="jarvis-prompt-input" /></div><div className="jarvis-composer-footer"><div className="jarvis-composer-tools"><button type="button" onClick={() => fileInputRef.current?.click()} aria-label="Upload file" title="Upload file" className="jarvis-composer-icon jarvis-upload-button"><Plus size={17} /></button><input ref={fileInputRef} type="file" hidden onChange={handleFilePick} /></div><div className="jarvis-command-actions"><button type="button" onClick={toggleExpand} aria-label={isExpanded ? 'Close expanded message box' : 'Expand message box'} title={isExpanded ? 'Close expanded composer' : 'Expand composer'} className={`jarvis-composer-icon jarvis-expand-button ${isExpanded ? 'is-active' : ''} ${!showExpand && !isExpanded ? 'is-placeholder' : ''}`} tabIndex={showExpand || isExpanded ? 0 : -1} aria-hidden={!showExpand && !isExpanded}>{isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button><button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon jarvis-mic-button ${isListening ? 'is-listening' : ''}`}><Mic size={16} /></button><button type="submit" disabled={!prompt.trim()} aria-label="Send" className="jarvis-send-button"><ArrowUp size={17} /></button></div></div></form></section></div></main>
     </div>
   );
 }
