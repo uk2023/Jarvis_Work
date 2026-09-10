@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Mic, MicOff, Plus } from 'lucide-react';
+import { ArrowUp, Maximize2, Mic, MicOff, Plus } from 'lucide-react';
 import { AppTheme } from '../types';
 import '../styles/dashboard-tables.css';
 import '../styles/jarvis-home.css';
@@ -18,6 +18,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   const [prompt, setPrompt] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -71,6 +72,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     if (!prompt.trim()) return;
     onStartChatWithPrompt(prompt.trim());
     setPrompt('');
+    setIsExpanded(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -99,8 +101,10 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     textareaRef.current?.focus();
   };
 
+  const showExpand = prompt.includes('\n') || prompt.length > 90;
+
   return (
-    <div className={`jarvis-home ${isKeyboardOpen ? 'keyboard-open' : ''} ${isDark ? 'jarvis-home-dark' : 'jarvis-home-light'}`}>
+    <div className={`jarvis-home ${isKeyboardOpen ? 'keyboard-open' : ''} ${isExpanded ? 'composer-expanded' : ''} ${isDark ? 'jarvis-home-dark' : 'jarvis-home-light'}`}>
       <div className="jarvis-space-field" aria-hidden="true">
         <span className="jarvis-star s1" /><span className="jarvis-star s2" /><span className="jarvis-star s3" /><span className="jarvis-star s4" />
         <span className="jarvis-nebula n1" /><span className="jarvis-nebula n2" />
@@ -130,6 +134,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
                   <input ref={fileInputRef} type="file" hidden onChange={handleFilePick} />
                 </div>
                 <div className="jarvis-command-actions">
+                  {showExpand && <button type="button" onClick={() => setIsExpanded(v => !v)} aria-label={isExpanded ? 'Collapse message box' : 'Expand message box'} title={isExpanded ? 'Collapse' : 'Expand'} className={`jarvis-composer-icon jarvis-expand-button ${isExpanded ? 'is-active' : ''}`}><Maximize2 size={16} /></button>}
                   <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon ${isListening ? 'is-listening' : ''}`}>{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button>
                   <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="jarvis-send-button"><ArrowUp size={17} /></button>
                 </div>
