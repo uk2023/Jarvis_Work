@@ -19,6 +19,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   const [isListening, setIsListening] = useState(false);
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showExpand, setShowExpand] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -48,11 +49,19 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   useEffect(() => {
     const el = textareaRef.current;
     if (!el || isExpanded) return;
+
     const lineHeight = 24;
+    const minHeight = lineHeight * 2;
     const maxHeight = lineHeight * 5;
-    el.style.height = `${lineHeight * 2}px`;
-    el.style.height = `${Math.min(Math.max(el.scrollHeight, lineHeight * 2), maxHeight)}px`;
-    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+
+    // Reset only for measurement, then clamp to exactly 2–5 visible lines.
+    el.style.height = `${minHeight}px`;
+    el.style.overflowY = 'hidden';
+    const contentHeight = el.scrollHeight;
+    const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight);
+    el.style.height = `${nextHeight}px`;
+    el.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
+    setShowExpand(contentHeight > minHeight + 1);
   }, [prompt, isExpanded]);
 
   useEffect(() => {
@@ -72,6 +81,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     onStartChatWithPrompt(prompt.trim());
     setPrompt('');
     setIsExpanded(false);
+    setShowExpand(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -104,8 +114,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     setIsExpanded(value => !value);
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   };
-
-  const showExpand = prompt.includes('\n') || prompt.length > 90;
 
   return (
     <div className={`jarvis-home ${isKeyboardOpen ? 'keyboard-open' : ''} ${isExpanded ? 'composer-expanded' : ''} ${isDark ? 'jarvis-home-dark' : 'jarvis-home-light'}`}>
