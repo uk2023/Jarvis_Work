@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Sparkles, ArrowUp, Mic, MicOff, Terminal } from 'lucide-react';
+import { Sparkles, ArrowUp, Mic, MicOff, Terminal, Maximize2, Minimize2 } from 'lucide-react';
 import { AppTheme } from '../types';
 import '../styles/dashboard-tables.css';
 import '../styles/jarvis-home.css';
+import '../styles/jarvis-home-mobile.css';
 
 interface HomeScreenProps {
   theme: AppTheme;
@@ -17,6 +18,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   const [prompt, setPrompt] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [canExpand, setCanExpand] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -46,18 +48,20 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     if (!el) return;
     el.style.height = 'auto';
     const lineHeight = 24;
-    const maxHeight = lineHeight * 5;
+    const collapsedMax = lineHeight * 5;
+    const expandedMax = lineHeight * 12;
     const naturalHeight = Math.max(el.scrollHeight, lineHeight * 2);
     setCanExpand(el.scrollHeight > lineHeight * 2 + 1);
-    el.style.height = `${Math.min(naturalHeight, maxHeight)}px`;
-    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
-  }, [prompt]);
+    el.style.height = `${Math.min(naturalHeight, isExpanded ? expandedMax : collapsedMax)}px`;
+    el.style.overflowY = el.scrollHeight > (isExpanded ? expandedMax : collapsedMax) ? 'auto' : 'hidden';
+  }, [prompt, isExpanded]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!prompt.trim()) return;
     onStartChatWithPrompt(prompt.trim());
     setPrompt('');
+    setIsExpanded(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -109,7 +113,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
             </div>
           </section>
 
-          <section className="jarvis-command-zone">
+          <section className={`jarvis-command-zone ${isExpanded ? 'is-expanded' : ''}`}>
             <form onSubmit={handleSubmit} className="jarvis-composer">
               <div className="jarvis-input-wrap">
                 <Sparkles size={14} className="jarvis-input-spark" />
@@ -127,8 +131,19 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
                 />
               </div>
               <div className="jarvis-composer-footer">
-                <span className="jarvis-native-badge"><Terminal size={11} /> {canExpand ? 'MULTI-LINE' : 'READY'}</span>
+                <span className="jarvis-native-badge"><Terminal size={11} /> {isExpanded ? 'EXPANDED' : canExpand ? 'MULTI-LINE' : 'READY'}</span>
                 <div className="jarvis-command-actions">
+                  {canExpand && (
+                    <button
+                      type="button"
+                      onClick={() => setIsExpanded(value => !value)}
+                      aria-label={isExpanded ? 'Collapse composer' : 'Expand composer'}
+                      title={isExpanded ? 'Collapse' : 'Expand'}
+                      className="jarvis-composer-icon jarvis-expand-button"
+                    >
+                      {isExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                    </button>
+                  )}
                   <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon ${isListening ? 'is-listening' : ''}`}>
                     {isListening ? <MicOff size={16} /> : <Mic size={16} />}
                   </button>
