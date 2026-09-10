@@ -23,8 +23,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const keyboardIntentRef = useRef(false);
-  const imeWasVisibleRef = useRef(false);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -35,20 +33,10 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     const update = () => {
       const visualHeight = viewport?.height ?? window.innerHeight;
       const keyboardOffset = Math.max(0, window.innerHeight - visualHeight);
-      const focused = document.activeElement === textareaRef.current;
-      const imeVisible = keyboardOffset > 80;
-
-      if (imeVisible) {
-        imeWasVisibleRef.current = true;
-      } else if (imeWasVisibleRef.current) {
-        // Back/keyboard dismiss can leave the textarea focused. Clear focus too,
-        // so the focus fallback cannot immediately force the compact state again.
-        if (focused) textareaRef.current?.blur();
-        keyboardIntentRef.current = false;
-        imeWasVisibleRef.current = false;
-      }
-
-      const open = keyboardIntentRef.current || imeVisible;
+      // The visual viewport is the single source of truth. Do not latch the
+      // compact state to focus: Android can keep an input focused after Back,
+      // which otherwise leaves the hero permanently stuck in keyboard mode.
+      const open = keyboardOffset > 80;
 
       setIsKeyboardOpen(open);
       document.documentElement.style.setProperty('--jarvis-keyboard-offset', `${open ? keyboardOffset : 0}px`);
@@ -56,12 +44,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const composerHeight = composerRef.current?.getBoundingClientRect().height ?? 0;
       document.documentElement.style.setProperty('--jarvis-composer-height', `${Math.ceil(composerHeight)}px`);
       document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', open ? '0.40' : '1');
-    };
-
-    const handleFocus = () => {
-      keyboardIntentRef.current = true;
-      setIsKeyboardOpen(true);
-      update();
     };
 
     const settleAfterKeyboard = () => {
@@ -82,7 +64,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     window.addEventListener('orientationchange', settleAfterKeyboard);
     window.addEventListener('pageshow', update);
     document.addEventListener('visibilitychange', update);
-    textareaRef.current?.addEventListener('focus', handleFocus);
     textareaRef.current?.addEventListener('blur', settleAfterKeyboard);
 
     return () => {
@@ -93,7 +74,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       window.removeEventListener('orientationchange', settleAfterKeyboard);
       window.removeEventListener('pageshow', update);
       document.removeEventListener('visibilitychange', update);
-      textareaRef.current?.removeEventListener('focus', handleFocus);
       textareaRef.current?.removeEventListener('blur', settleAfterKeyboard);
       document.documentElement.style.removeProperty('--jarvis-keyboard-offset');
       document.documentElement.style.removeProperty('--jarvis-visual-height');
@@ -132,7 +112,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const viewport = window.visualViewport;
       if (viewport) {
         const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
-        const open = keyboardIntentRef.current || keyboardOffset > 80;
+        const open = keyboardOffset > 80;
         document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', open ? '0.40' : '1');
       }
     };
@@ -187,8 +167,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     <div className={`jarvis-home ${isKeyboardOpen ? 'keyboard-open' : ''} ${isExpanded ? 'composer-expanded' : ''} ${isDark ? 'jarvis-home-dark' : 'jarvis-home-light'}`}>
       <style>{`@media (max-width:640px){
         .jarvis-home:not(.keyboard-open) .jarvis-hero{transform:translate(-50%,-50%) scale(.972)!important;}
-        .jarvis-home:not(.keyboard-open):has(.jarvis-prompt-input:focus) .jarvis-hero{transform:translate(-50%,-50%) scale(.972)!important;}
-        .jarvis-home:not(.keyboard-open):has(.jarvis-prompt-input:focus) .jarvis-identity{display:flex!important;visibility:visible!important;opacity:1!important;height:auto!important;width:max-content!important;max-height:none!important;max-width:calc(100vw - 24px)!important;margin:9px auto 0!important;padding:0!important;overflow:visible!important;pointer-events:auto!important;}
         .jarvis-home:not(.keyboard-open) .jarvis-identity h1{font-size:37px!important;}
         .jarvis-home:not(.keyboard-open) .jarvis-identity p{font-size:26px!important;}
       }`}</style>
