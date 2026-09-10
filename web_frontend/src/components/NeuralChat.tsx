@@ -27,9 +27,6 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
   useEffect(() => { if (messages.length) scrollToBottom('smooth'); }, [messages.length, scrollToBottom]);
   useEffect(() => { if (isThinking) scrollToBottom('smooth'); }, [isThinking, scrollToBottom]);
 
-  // Only resize events should reposition the composer. Android can emit a
-  // visualViewport scroll while a focused textarea is being swiped; reacting to
-  // that event makes the composer itself appear to pan with the keyboard.
   useEffect(() => {
     const updateViewport = () => {
       const vv = window.visualViewport;
@@ -49,8 +46,20 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
     };
   }, []);
 
-  // React touch handlers are not reliably non-passive on every Android WebView.
-  // Consume textarea swipes natively so the browser cannot pan the visual viewport.
+  // Android/WebView may hand an edge-reaching textarea gesture to the visual
+  // viewport even when the textarea itself is fixed. Capture the gesture at the
+  // document level and always consume it while the textarea owns the gesture.
+  // This prevents the "scroll to the bottom -> composer starts panning" handoff.
+  useEffect(() => {
+    const onDocumentTouchMove = (event: TouchEvent) => {
+      if (!textareaTouchingRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    document.addEventListener('touchmove', onDocumentTouchMove, { passive: false, capture: true });
+    return () => document.removeEventListener('touchmove', onDocumentTouchMove, true);
+  }, []);
+
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -58,6 +67,7 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
     const onStart = (event: TouchEvent) => {
       textareaTouchingRef.current = true;
       lastY = event.touches[0]?.clientY ?? 0;
+      event.preventDefault();
       event.stopPropagation();
     };
     const onMove = (event: TouchEvent) => {
@@ -66,10 +76,15 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
       event.preventDefault();
       event.stopPropagation();
       const delta = lastY - y;
-      if (delta) el.scrollTop += delta;
+      if (delta) {
+        const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+        const next = Math.max(0, Math.min(maxScroll, el.scrollTop + delta));
+        el.scrollTop = next;
+      }
       lastY = y;
     };
     const onEnd = (event: TouchEvent) => {
+      event.preventDefault();
       event.stopPropagation();
       textareaTouchingRef.current = false;
     };
