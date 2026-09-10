@@ -60,7 +60,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     const minHeight = lineHeight * 2;
     const maxHeight = lineHeight * 5;
 
-    // Measure the real content first; then clamp the visible editor to exactly 2–5 lines.
     el.style.height = `${minHeight}px`;
     el.style.overflowY = 'hidden';
     const contentHeight = el.scrollHeight;
@@ -74,12 +73,13 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     const el = composerRef.current;
     if (!el) return;
     const update = () => {
-      document.documentElement.style.setProperty('--jarvis-composer-height', `${Math.ceil(el.getBoundingClientRect().height)}px`);
+      const height = el.getBoundingClientRect().height;
+      document.documentElement.style.setProperty('--jarvis-composer-height', `${Math.ceil(height)}px`);
       const viewport = window.visualViewport;
       if (viewport) {
         const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
         const open = keyboardOffset > 120;
-        const available = Math.max(0, viewport.height - 56 - el.getBoundingClientRect().height - 16);
+        const available = Math.max(0, viewport.height - 56 - height - 16);
         const heroScale = open ? Math.max(0.18, Math.min(0.46, (available / 420) * 0.46)) : 1;
         document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
       }
@@ -163,7 +163,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
                 </div>
                 <div className="jarvis-command-actions">
                   {showExpand && <button type="button" onClick={toggleExpand} aria-label={isExpanded ? 'Close expanded message box' : 'Expand message box'} title={isExpanded ? 'Close expanded composer' : 'Expand composer'} className={`jarvis-composer-icon jarvis-expand-button ${isExpanded ? 'is-active' : ''}`}>{isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>}
-                  <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon ${isListening ? 'is-listening' : ''}`}>{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button>
+                  <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon jarvis-mic-button ${isListening ? 'is-listening' : ''}`}>{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button>
                   <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="jarvis-send-button"><ArrowUp size={17} /></button>
                 </div>
               </div>
