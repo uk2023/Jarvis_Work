@@ -1,6 +1,35 @@
 /* Mobile/GPT-style composer: the input follows the visual viewport keyboard without moving the app header. */
 .jarvis-home{--jarvis-composer-gap:8px}
 
+/* Landing typography: Devanagari greeting is decorative; subtitle stays sharp and compact. */
+.jarvis-home .jarvis-identity h1{
+  font-family:'Amita','Noto Serif Devanagari','Nirmala UI','Mangal',serif!important;
+  font-size:clamp(40px,8vw,58px)!important;
+  line-height:1!important;
+  font-weight:700!important;
+  letter-spacing:.01em!important;
+  white-space:nowrap!important;
+}
+.jarvis-home .jarvis-identity p{
+  font-family:Inter,Roboto,'Helvetica Neue',Arial,sans-serif!important;
+  font-size:calc(clamp(40px,8vw,58px) - 7.5px)!important;
+  line-height:1.05!important;
+  font-weight:500!important;
+  letter-spacing:-.035em!important;
+  white-space:nowrap!important;
+  color:var(--jarvis-text-muted)!important;
+}
+
+/* The old gradient cognition container is removed from the landing surface. */
+.jarvis-home .jarvis-intelligence-panel{display:none!important}
+
+/* Keep the landing composition bottom-anchored with clean breathing room. */
+.jarvis-home-main{align-items:stretch!important}
+.jarvis-home-content{
+  justify-content:flex-end!important;
+  transform:none!important;
+  padding-bottom:max(8px,env(safe-area-inset-bottom))!important;
+}
 .jarvis-command-zone{min-width:0;box-sizing:border-box}
 .jarvis-composer{min-width:0;box-sizing:border-box}
 .jarvis-input-wrap{min-width:0;overflow:hidden}
@@ -49,6 +78,7 @@
   justify-content:flex-start!important;
   transform:none!important;
   overflow:visible!important;
+  padding-bottom:0!important;
 }
 .jarvis-home.keyboard-open .jarvis-hero{
   position:fixed!important;
