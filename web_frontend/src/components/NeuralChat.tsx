@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowUp, Maximize2, Minimize2, Mic, MicOff, Volume2, ChevronDown, ChevronUp, Cpu, Database, GitFork, CheckCircle2, Clock, SpellCheck, Bot, User, Zap, RotateCcw, Plus } from 'lucide-react';
 import { ChatMessage, OrganismTelemetry, AppTheme } from '../types';
@@ -14,6 +15,7 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
   const [isListening, setIsListening] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showExpand, setShowExpand] = useState(false);
+  const [keyboardBottom, setKeyboardBottom] = useState(0);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -23,6 +25,53 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
   useEffect(() => { if (messages.length) scrollToBottom('auto'); }, []);
   useEffect(() => { if (messages.length) scrollToBottom('smooth'); }, [messages.length, scrollToBottom]);
   useEffect(() => { if (isThinking) scrollToBottom('smooth'); }, [isThinking, scrollToBottom]);
+
+  // Android Chrome can move a fixed descendant when the visual viewport changes.
+  // The composer is portaled to <body> and its bottom edge is explicitly pinned to
+  // the visual viewport / keyboard boundary, so textarea scrolling cannot drag it.
+  useEffect(() => {
+    const updateViewport = () => {
+      const vv = window.visualViewport;
+      if (!vv) { setKeyboardBottom(0); return; }
+      const bottom = Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
+      setKeyboardBottom(bottom);
+    };
+    updateViewport();
+    const vv = window.visualViewport;
+    window.addEventListener('resize', updateViewport, { passive: true });
+    window.addEventListener('orientationchange', updateViewport, { passive: true });
+    vv?.addEventListener('resize', updateViewport, { passive: true });
+    vv?.addEventListener('scroll', updateViewport, { passive: true });
+    return () => {
+      window.removeEventListener('resize', updateViewport);
+      window.removeEventListener('orientationchange', updateViewport);
+      vv?.removeEventListener('resize', updateViewport);
+      vv?.removeEventListener('scroll', updateViewport);
+    };
+  }, []);
+
+  // While Chat is mounted, lock document scrolling without changing its geometry.
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const root = document.getElementById('root');
+    const previous = {
+      htmlOverflow: html.style.overflow,
+      bodyOverflow: body.style.overflow,
+      bodyOverscroll: body.style.overscrollBehavior,
+      rootOverflow: root?.style.overflow || ''
+    };
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    body.style.overscrollBehavior = 'none';
+    if (root) root.style.overflow = 'hidden';
+    return () => {
+      html.style.overflow = previous.htmlOverflow;
+      body.style.overflow = previous.bodyOverflow;
+      body.style.overscrollBehavior = previous.bodyOverscroll;
+      if (root) root.style.overflow = previous.rootOverflow;
+    };
+  }, []);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -59,6 +108,60 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
   };
   const speakText = (text: string) => { if (!('speechSynthesis' in window)) return; speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate=1.05; u.pitch=.95; speechSynthesis.speak(u); };
 
+  const composer = (
+    <div
+      className={`neural-composer-dock ${isDark?'bg-[#06080e]/95 border-white/10':'bg-white/95 border-slate-200'}`}
+      style={{
+        position: 'fixed', left: 0, right: 0, bottom: keyboardBottom, width: '100vw', maxWidth: '100vw',
+        margin: 0, padding: 0, zIndex: 2147483000, flexShrink: 0, overflow: 'visible',
+        transform: 'translate3d(0,0,0)', contain: 'layout paint', touchAction: 'none',
+        overscrollBehavior: 'none', boxSizing: 'border-box'
+      }}
+    >
+      <form onSubmit={handleSubmit} className="neural-composer-form" style={{ width: '100%', maxWidth: '100%', overflow: 'visible', touchAction: 'none' }}>
+        <div
+          className="neural-composer"
+          style={{
+            width: 'min(100%, 820px)', maxWidth: '820px', margin: '0 auto', boxSizing: 'border-box',
+            padding: '10px', borderRadius: '22px', overflow: 'visible',
+            background: isDark ? 'rgba(6,8,14,.95)' : 'rgba(255,255,255,.95)',
+            border: `1px solid ${isDark ? 'rgba(255,255,255,.10)' : 'rgba(226,232,240,1)'}`,
+            boxShadow: '0 14px 42px rgba(0,0,0,.18),0 0 30px rgba(70,110,220,.08)',
+            backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)'
+          }}
+        >
+          <div className="neural-input-wrap" style={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden', touchAction: 'none' }}>
+            <textarea
+              ref={textareaRef} rows={2} value={inputText} onChange={autoResize} onKeyDown={handleKeyDown}
+              onTouchStart={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()} onPointerMove={(e) => e.stopPropagation()}
+              style={{
+                display:'block', width:'100%', minWidth:0, maxWidth:'100%', minHeight:'48px', maxHeight:'120px',
+                boxSizing:'border-box', resize:'none', overflowX:'hidden', overflowY:'auto',
+                padding:'3px 6px', border:0, outline:0, background:'transparent',
+                fontSize:'15px', lineHeight:'24px', color:isDark?'#fff':'#0f172a',
+                overscrollBehavior:'contain', overscrollBehaviorY:'contain', touchAction:'pan-y',
+                WebkitOverflowScrolling:'touch', scrollBehavior:'auto', scrollMargin:0, overflowAnchor:'none'
+              }}
+              className={`neural-prompt-input ${isDark?'text-white placeholder-white/40':'text-slate-900 placeholder-slate-400'}`}
+              placeholder="Message JARVIS..."
+            />
+          </div>
+          <div className="neural-composer-footer" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', minHeight:34, padding:'6px 0 0', marginTop:4, borderTop:0 }}>
+            <button type="button" className="neural-action neural-plus" title="Attach" style={{width:34,height:34,borderRadius:11,display:'flex',alignItems:'center',justifyContent:'center'}}><Plus size={17}/></button>
+            <div className="neural-actions-right" style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}>
+              {showExpand && <button type="button" onClick={toggleExpand} className={`neural-action neural-expand ${isExpanded?'is-active':''}`} title={isExpanded?'Close expanded composer':'Expand composer'} style={{width:34,height:34,borderRadius:11,display:'flex',alignItems:'center',justifyContent:'center'}}>{isExpanded?<Minimize2 size={16}/>:<Maximize2 size={16}/>}</button>}
+              <button type="button" onClick={toggleSpeechRecognition} className={`neural-action neural-mic ${isListening?'is-listening':''}`} title="Voice input" style={{width:34,height:34,borderRadius:11,display:'flex',alignItems:'center',justifyContent:'center'}}>{isListening?<MicOff size={16}/>:<Mic size={16}/>}</button>
+              <button type="submit" disabled={!inputText.trim()||isThinking} className="neural-send" title="Send" style={{width:34,height:34,borderRadius:11,display:'flex',alignItems:'center',justifyContent:'center'}}><ArrowUp size={17}/></button>
+            </div>
+          </div>
+        </div>
+        <div className={`neural-subtext ${isDark?'text-white/40':'text-slate-400'}`} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'3px 4px 4px',fontSize:10}}><span>JARVIS 3B • Android 8GB RAM</span><button type="button" onClick={onOpenCLI} style={{display:'flex',alignItems:'center',gap:4}}><Cpu size={12}/> CLI Trace</button></div>
+      </form>
+    </div>
+  );
+
   return <div id="neural-chat-container" className={`flex flex-col h-full w-full min-h-0 overflow-hidden relative neural-chat-shell ${isExpanded ? 'chat-composer-expanded' : ''}`}>
     <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-6 py-4 space-y-4 overscroll-contain neural-messages-scroll">
       {messages.length === 0 ? <div className="h-full flex items-center justify-center"><OrganismCore telemetry={telemetry} onOpenCLI={onOpenCLI} onQuickPrompt={onQuickPrompt} theme={theme} /></div> :
@@ -92,24 +195,6 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
         <div ref={messagesEndRef}/>
       </div>}
     </div>
-
-    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, width: '100%', overscrollBehavior: 'none', flexShrink: 0, touchAction: 'none' }} className={`neural-composer-dock shrink-0 z-50 ${isDark?'bg-[#06080e]/95 border-white/10':'bg-white/95 border-slate-200'}`}>
-      <form onSubmit={handleSubmit} className="neural-composer-form">
-        <div className="neural-composer">
-          <div className="neural-input-wrap">
-            <textarea ref={textareaRef} rows={2} value={inputText} onChange={autoResize} onKeyDown={handleKeyDown} onTouchStart={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} style={{ overscrollBehavior: 'contain', overscrollBehaviorY: 'contain', touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }} className={`neural-prompt-input ${isDark?'text-white placeholder-white/40':'text-slate-900 placeholder-slate-400'}`} placeholder="Message JARVIS..." />
-          </div>
-          <div className="neural-composer-footer">
-            <button type="button" className="neural-action neural-plus" title="Attach"><Plus size={17}/></button>
-            <div className="neural-actions-right">
-              {showExpand && <button type="button" onClick={toggleExpand} className={`neural-action neural-expand ${isExpanded?'is-active':''}`} title={isExpanded?'Close expanded composer':'Expand composer'}>{isExpanded?<Minimize2 size={16}/>:<Maximize2 size={16}/>}</button>}
-              <button type="button" onClick={toggleSpeechRecognition} className={`neural-action neural-mic ${isListening?'is-listening':''}`} title="Voice input">{isListening?<MicOff size={16}/>:<Mic size={16}/>}</button>
-              <button type="submit" disabled={!inputText.trim()||isThinking} className="neural-send" title="Send"><ArrowUp size={17}/></button>
-            </div>
-          </div>
-        </div>
-        <div className={`neural-subtext ${isDark?'text-white/40':'text-slate-400'}`}><span>JARVIS 3B • Android 8GB RAM</span><button type="button" onClick={onOpenCLI}><Cpu size={12}/> CLI Trace</button></div>
-      </form>
-    </div>
+    {typeof document !== 'undefined' ? createPortal(composer, document.body) : null}
   </div>;
 };
