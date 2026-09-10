@@ -26,14 +26,12 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
-
     const update = () => {
       const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
       const open = keyboardOffset > 120;
       setIsKeyboardOpen(open);
       document.documentElement.style.setProperty('--jarvis-keyboard-offset', `${open ? keyboardOffset : 0}px`);
     };
-
     update();
     viewport.addEventListener('resize', update);
     viewport.addEventListener('scroll', update);
@@ -61,17 +59,12 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   useEffect(() => {
     const el = composerRef.current;
     if (!el) return;
-    const update = () => {
-      document.documentElement.style.setProperty('--jarvis-composer-height', `${Math.ceil(el.getBoundingClientRect().height)}px`);
-    };
+    const update = () => document.documentElement.style.setProperty('--jarvis-composer-height', `${Math.ceil(el.getBoundingClientRect().height)}px`);
     update();
     const observer = new ResizeObserver(update);
     observer.observe(el);
     window.addEventListener('resize', update);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', update);
-    };
+    return () => { observer.disconnect(); window.removeEventListener('resize', update); };
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -97,34 +90,23 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
         setIsListening(false);
         textareaRef.current?.focus();
       }, 1800);
-    } else {
-      setIsListening(false);
-    }
+    } else setIsListening(false);
   };
 
   return (
     <div className={`jarvis-home ${isKeyboardOpen ? 'keyboard-open' : ''} ${isDark ? 'jarvis-home-dark' : 'jarvis-home-light'}`}>
       <div className="jarvis-space-field" aria-hidden="true">
-        <span className="jarvis-star s1" />
-        <span className="jarvis-star s2" />
-        <span className="jarvis-star s3" />
-        <span className="jarvis-star s4" />
-        <span className="jarvis-nebula n1" />
-        <span className="jarvis-nebula n2" />
+        <span className="jarvis-star s1" /><span className="jarvis-star s2" /><span className="jarvis-star s3" /><span className="jarvis-star s4" />
+        <span className="jarvis-nebula n1" /><span className="jarvis-nebula n2" />
       </div>
-
       <main className="jarvis-home-main">
         <div className="jarvis-home-content">
           <section className="jarvis-hero">
             <div className="jarvis-black-hole" aria-label="JARVIS cognitive core">
-              <div className="jarvis-orbit orbit-a" />
-              <div className="jarvis-orbit orbit-b" />
-              <div className="jarvis-orbit orbit-c" />
-              <div className="jarvis-accretion" />
-              <div className="jarvis-core-glow" />
+              <div className="jarvis-orbit orbit-a" /><div className="jarvis-orbit orbit-b" /><div className="jarvis-orbit orbit-c" />
+              <div className="jarvis-accretion" /><div className="jarvis-core-glow" />
               <div className="jarvis-core-void"><span /><span /><span /></div>
             </div>
-
             <div className="jarvis-identity">
               <h1>नमस्ते</h1>
               <p>Aaj, Kya HELP Karu?</p>
@@ -135,39 +117,14 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
             <form ref={composerRef} onSubmit={handleSubmit} className="jarvis-composer">
               <div className="jarvis-input-wrap">
                 <Sparkles size={14} className="jarvis-input-spark" />
-                <textarea
-                  ref={textareaRef}
-                  value={prompt}
-                  onChange={e => setPrompt(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  rows={2}
-                  maxLength={4000}
-                  placeholder="Message JARVIS..."
-                  aria-label="Message JARVIS"
-                  aria-multiline="true"
-                  className="jarvis-prompt-input"
-                />
+                <textarea ref={textareaRef} value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={handleKeyDown} rows={2} maxLength={4000} placeholder="Message JARVIS..." aria-label="Message JARVIS" aria-multiline="true" className="jarvis-prompt-input" />
               </div>
               <div className="jarvis-composer-footer">
                 <span className="jarvis-native-badge"><Terminal size={11} /> {isExpanded ? 'EXPANDED' : canExpand ? 'MULTI-LINE' : 'READY'}</span>
                 <div className="jarvis-command-actions">
-                  {canExpand && (
-                    <button
-                      type="button"
-                      onClick={() => setIsExpanded(value => !value)}
-                      aria-label={isExpanded ? 'Collapse composer' : 'Expand composer'}
-                      title={isExpanded ? 'Collapse' : 'Expand'}
-                      className="jarvis-composer-icon jarvis-expand-button"
-                    >
-                      {isExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                    </button>
-                  )}
-                  <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon ${isListening ? 'is-listening' : ''}`}>
-                    {isListening ? <MicOff size={16} /> : <Mic size={16} />}
-                  </button>
-                  <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="jarvis-send-button">
-                    <ArrowUp size={17} />
-                  </button>
+                  {canExpand && <button type="button" onClick={() => setIsExpanded(value => !value)} aria-label={isExpanded ? 'Collapse composer' : 'Expand composer'} title={isExpanded ? 'Collapse' : 'Expand'} className="jarvis-composer-icon jarvis-expand-button">{isExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>}
+                  <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon ${isListening ? 'is-listening' : ''}`}>{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button>
+                  <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="jarvis-send-button"><ArrowUp size={17} /></button>
                 </div>
               </div>
             </form>
