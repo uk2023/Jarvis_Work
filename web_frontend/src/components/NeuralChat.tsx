@@ -15,7 +15,6 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
   const [isListening, setIsListening] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showExpand, setShowExpand] = useState(false);
-  const [keyboardBottom, setKeyboardBottom] = useState(0);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -27,74 +26,19 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
   useEffect(() => { if (messages.length) scrollToBottom('smooth'); }, [messages.length, scrollToBottom]);
   useEffect(() => { if (isThinking) scrollToBottom('smooth'); }, [isThinking, scrollToBottom]);
 
+  // Keep the composer anchored to the layout viewport. On Android, calculating
+  // a manual visualViewport keyboard offset double-counts the IME when the
+  // browser already resizes the layout viewport, producing the large upward jump.
   useEffect(() => {
-    const updateViewport = () => {
-      const vv = window.visualViewport;
-      if (!vv) { setKeyboardBottom(0); return; }
-      const bottom = Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
-      if (!textareaTouchingRef.current) setKeyboardBottom(bottom);
-    };
-    updateViewport();
-    const vv = window.visualViewport;
-    window.addEventListener('resize', updateViewport, { passive: true });
-    window.addEventListener('orientationchange', updateViewport, { passive: true });
-    vv?.addEventListener('resize', updateViewport, { passive: true });
-    return () => {
-      window.removeEventListener('resize', updateViewport);
-      window.removeEventListener('orientationchange', updateViewport);
-      vv?.removeEventListener('resize', updateViewport);
-    };
-  }, []);
-
-  // Android/WebView may hand an edge-reaching textarea gesture to the visual
-  // viewport even when the textarea itself is fixed. Capture the gesture at the
-  // document level and always consume it while the textarea owns the gesture.
-  // This prevents the "scroll to the bottom -> composer starts panning" handoff.
-  useEffect(() => {
-    const onDocumentTouchMove = (event: TouchEvent) => {
-      if (!textareaTouchingRef.current) return;
-      event.preventDefault();
-      event.stopPropagation();
-    };
-    document.addEventListener('touchmove', onDocumentTouchMove, { passive: false, capture: true });
-    return () => document.removeEventListener('touchmove', onDocumentTouchMove, true);
-  }, []);
-
-  useEffect(() => {
+    const onStart = () => { textareaTouchingRef.current = true; };
+    const onEnd = () => { textareaTouchingRef.current = false; };
     const el = textareaRef.current;
     if (!el) return;
-    let lastY = 0;
-    const onStart = (event: TouchEvent) => {
-      textareaTouchingRef.current = true;
-      lastY = event.touches[0]?.clientY ?? 0;
-      event.preventDefault();
-      event.stopPropagation();
-    };
-    const onMove = (event: TouchEvent) => {
-      const y = event.touches[0]?.clientY;
-      if (y == null) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const delta = lastY - y;
-      if (delta) {
-        const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-        const next = Math.max(0, Math.min(maxScroll, el.scrollTop + delta));
-        el.scrollTop = next;
-      }
-      lastY = y;
-    };
-    const onEnd = (event: TouchEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      textareaTouchingRef.current = false;
-    };
-    el.addEventListener('touchstart', onStart, { passive: false });
-    el.addEventListener('touchmove', onMove, { passive: false });
-    el.addEventListener('touchend', onEnd, { passive: false });
-    el.addEventListener('touchcancel', onEnd, { passive: false });
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchend', onEnd, { passive: true });
+    el.addEventListener('touchcancel', onEnd, { passive: true });
     return () => {
       el.removeEventListener('touchstart', onStart);
-      el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd);
       el.removeEventListener('touchcancel', onEnd);
     };
@@ -146,7 +90,7 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
   const speakText = (text: string) => { if (!('speechSynthesis' in window)) return; speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate=1.05; u.pitch=.95; speechSynthesis.speak(u); };
 
   const composer = (
-    <div className={`neural-composer-dock ${isDark?'bg-[#06080e]/95 border-white/10':'bg-white/95 border-slate-200'}`} style={{position:'fixed',left:0,right:0,bottom:keyboardBottom,width:'100vw',maxWidth:'100vw',margin:0,padding:0,zIndex:2147483000,flexShrink:0,overflow:'visible',transform:'translate3d(0,0,0)',contain:'layout paint',touchAction:'none',overscrollBehavior:'none',boxSizing:'border-box'}}>
+    <div className={`neural-composer-dock ${isDark?'bg-[#06080e]/95 border-white/10':'bg-white/95 border-slate-200'}`} style={{position:'fixed',left:0,right:0,bottom:0,width:'100vw',maxWidth:'100vw',margin:0,padding:0,zIndex:2147483000,flexShrink:0,overflow:'visible',transform:'translate3d(0,0,0)',contain:'layout paint',touchAction:'none',overscrollBehavior:'none',boxSizing:'border-box'}}>
       <form onSubmit={handleSubmit} className="neural-composer-form" style={{width:'100%',maxWidth:'100%',overflow:'visible',touchAction:'none'}}>
         <div className="neural-composer" style={{width:'min(100%, 820px)',maxWidth:'820px',margin:'0 auto',boxSizing:'border-box',padding:'10px',borderRadius:'22px',overflow:'visible',background:isDark?'rgba(6,8,14,.95)':'rgba(255,255,255,.95)',border:`1px solid ${isDark?'rgba(255,255,255,.10)':'rgba(226,232,240,1)'}`,boxShadow:'0 14px 42px rgba(0,0,0,.18),0 0 30px rgba(70,110,220,.08)',backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)'}}>
           <div className="neural-input-wrap" style={{minWidth:0,maxWidth:'100%',overflow:'hidden',touchAction:'none'}}>
