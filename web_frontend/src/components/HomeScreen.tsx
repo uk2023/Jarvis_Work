@@ -24,6 +24,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   const composerRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const keyboardIntentRef = useRef(false);
+  const imeWasVisibleRef = useRef(false);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -36,10 +37,20 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const keyboardOffset = Math.max(0, window.innerHeight - visualHeight);
       const focused = document.activeElement === textareaRef.current;
       const imeVisible = keyboardOffset > 80;
-      // Never let a transient Android focus/viewport event re-expand the hero
-      // while the IME is still visible. The intent latch is cleared only after
-      // the viewport has actually returned to its full height.
-      const open = keyboardIntentRef.current || imeVisible || focused;
+
+      if (imeVisible) {
+        imeWasVisibleRef.current = true;
+      } else if (imeWasVisibleRef.current) {
+        // Android can keep the textarea focused after the Back gesture hides
+        // the IME. Once the viewport is restored, release the keyboard latch.
+        keyboardIntentRef.current = false;
+        imeWasVisibleRef.current = false;
+      }
+
+      // During the initial focus transition, keep the hero compact until the
+      // viewport reports the IME. After a real IME dismissal, focus alone must
+      // never re-expand/re-shrink the landing hero.
+      const open = keyboardIntentRef.current || imeVisible || (focused && !imeWasVisibleRef.current);
 
       setIsKeyboardOpen(open);
       document.documentElement.style.setProperty('--jarvis-keyboard-offset', `${open ? keyboardOffset : 0}px`);
@@ -59,11 +70,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       window.clearTimeout(settleTimer);
       let attempts = 0;
       const settle = () => {
-        const visualHeight = viewport?.height ?? window.innerHeight;
-        const keyboardOffset = Math.max(0, window.innerHeight - visualHeight);
-        const focused = document.activeElement === textareaRef.current;
-        // Only release the latch after Android has genuinely dismissed the IME.
-        if (!focused && keyboardOffset <= 80) keyboardIntentRef.current = false;
         update();
         attempts += 1;
         if (attempts < 12) settleTimer = window.setTimeout(settle, 80);
@@ -130,7 +136,8 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const viewport = window.visualViewport;
       if (viewport) {
         const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
-        const open = keyboardIntentRef.current || keyboardOffset > 80 || document.activeElement === textareaRef.current;
+        const focused = document.activeElement === textareaRef.current;
+        const open = keyboardIntentRef.current || keyboardOffset > 80 || (focused && !imeWasVisibleRef.current);
         const heroScale = open ? 0.40 : 1;
         document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
       }
