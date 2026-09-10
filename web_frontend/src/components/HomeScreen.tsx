@@ -33,7 +33,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       setIsKeyboardOpen(open);
       document.documentElement.style.setProperty('--jarvis-keyboard-offset', `${open ? keyboardOffset : 0}px`);
       document.documentElement.style.setProperty('--jarvis-visual-height', `${viewport.height}px`);
-
       const composerHeight = composerRef.current?.getBoundingClientRect().height ?? 0;
       const available = Math.max(0, viewport.height - 56 - composerHeight - 16);
       const heroScale = open ? Math.max(0.18, Math.min(0.46, (available / 420) * 0.46)) : 1;
@@ -55,22 +54,17 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   useEffect(() => {
     const el = textareaRef.current;
     if (!el || isExpanded) return;
-
     const lineHeight = 24;
     const minHeight = lineHeight * 2;
     const maxHeight = lineHeight * 5;
-
-    // Keep the measurement box at exactly 2 lines, then explicitly grow it to 3/4/5 lines.
-    // CSS uses !important on the mobile height, so the inline height must also be important.
     el.style.setProperty('height', `${minHeight}px`, 'important');
     el.style.setProperty('overflow-y', 'hidden', 'important');
     const contentHeight = el.scrollHeight;
     const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight);
     el.style.setProperty('height', `${nextHeight}px`, 'important');
     el.style.setProperty('overflow-y', contentHeight > maxHeight ? 'auto' : 'hidden', 'important');
-
-    // Expand control appears as soon as the content actually needs a third visible line.
-    setShowExpand(contentHeight > minHeight + 1);
+    // Show only when a fourth visible line is actually needed.
+    setShowExpand(contentHeight > lineHeight * 3 + 1);
   }, [prompt, isExpanded]);
 
   useEffect(() => {
@@ -105,7 +99,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !isKeyboardOpen && window.innerWidth > 640) {
       e.preventDefault();
       handleSubmit(e);
     }
@@ -154,7 +148,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
               <p>Aaj, Kya HELP Karu?</p>
             </div>
           </section>
-
           <section className="jarvis-command-zone">
             <form ref={composerRef} onSubmit={handleSubmit} className="jarvis-composer">
               <div className="jarvis-input-wrap">
