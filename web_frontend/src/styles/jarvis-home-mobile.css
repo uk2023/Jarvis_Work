@@ -1,5 +1,5 @@
 /* Mobile/GPT-style composer: the input follows the visual viewport keyboard without moving the app header. */
-.jarvis-home{--jarvis-composer-gap:10px}
+.jarvis-home{--jarvis-composer-gap:8px}
 
 .jarvis-command-zone{min-width:0;box-sizing:border-box}
 .jarvis-composer{min-width:0;box-sizing:border-box}
@@ -24,7 +24,7 @@
 .jarvis-composer-icon,.jarvis-send-button{flex:0 0 34px}
 .jarvis-expand-button{display:flex;align-items:center;justify-content:center}
 
-/* The core never participates in flex shrinking while the composer grows. */
+/* Never let the cognitive core flex-shrink when the message box grows. */
 .jarvis-black-hole{
   flex:0 0 178px!important;
   width:178px!important;
@@ -33,7 +33,7 @@
   min-height:178px!important;
 }
 
-/* Keyboard open: anchor the whole composer to the visual keyboard edge. */
+/* Keyboard open: anchor the composer to the visual viewport keyboard edge. */
 .jarvis-home.keyboard-open .jarvis-home-main{
   align-items:flex-start!important;
   justify-content:flex-start!important;
@@ -54,7 +54,7 @@
   position:fixed!important;
   left:12px!important;
   right:12px!important;
-  bottom:calc(var(--jarvis-keyboard-offset, 0px) + var(--jarvis-composer-gap) + 84px)!important;
+  bottom:calc(var(--jarvis-keyboard-offset, 0px) + var(--jarvis-composer-height, 92px) + var(--jarvis-composer-gap))!important;
   width:auto!important;
   height:178px!important;
   margin:0!important;
@@ -83,15 +83,9 @@
 .jarvis-home.keyboard-open .jarvis-black-hole{animation:jarvis-core-float 6s ease-in-out infinite!important}
 
 /* Expanded composer behaves like a compact GPT composer window. */
-.jarvis-command-zone.is-expanded .jarvis-composer{
-  max-height:min(46vh,520px);
-}
-.jarvis-command-zone.is-expanded .jarvis-prompt-input{
-  max-height:288px!important;
-}
-.jarvis-home.keyboard-open .jarvis-command-zone.is-expanded{
-  bottom:calc(var(--jarvis-keyboard-offset, 0px) + 8px)!important;
-}
+.jarvis-command-zone.is-expanded .jarvis-composer{max-height:min(46vh,520px)}
+.jarvis-command-zone.is-expanded .jarvis-prompt-input{max-height:288px!important}
+.jarvis-home.keyboard-open .jarvis-command-zone.is-expanded{bottom:calc(var(--jarvis-keyboard-offset, 0px) + 8px)!important}
 
 @media(max-width:640px){
   .jarvis-home.keyboard-open .jarvis-home-main{padding-inline:8px!important}
