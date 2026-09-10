@@ -20,35 +20,39 @@ body{min-height:100%;}
   touch-action:pan-x;
 }
 
-/* Idle landing typography: 10% smaller than the previous revision. */
+/* Landing typography: 6% smaller than the immediately previous revision. */
 .jarvis-home .jarvis-identity{
-  width:100%!important;
-  margin:0 0 12px!important;
+  width:max-content!important;
+  max-width:100%!important;
+  margin:0!important;
   padding:0!important;
   text-align:center!important;
   display:flex!important;
   flex-direction:column!important;
   align-items:center!important;
   justify-content:center!important;
+  align-self:center!important;
 }
 .jarvis-home .jarvis-identity h1{
   font-family:'Amita','Noto Serif Devanagari','Nirmala UI','Mangal',serif!important;
-  font-size:clamp(40px,7.92vw,57.6px)!important;
+  font-size:calc(clamp(40px,7.92vw,57.6px) * .94)!important;
   line-height:1!important;
   font-weight:700!important;
   letter-spacing:.01em!important;
   white-space:nowrap!important;
-  width:100%!important;
+  width:auto!important;
+  max-width:100%!important;
   text-align:center!important;
 }
 .jarvis-home .jarvis-identity p{
   font-family:Alegreya,Georgia,'Times New Roman',serif!important;
-  font-size:calc(clamp(40px,7.92vw,57.6px) - 8px)!important;
+  font-size:calc((clamp(40px,7.92vw,57.6px) - 8px) * .94)!important;
   line-height:1!important;
   font-weight:500!important;
   letter-spacing:-.025em!important;
   white-space:nowrap!important;
-  width:100%!important;
+  width:auto!important;
+  max-width:100%!important;
   text-align:center!important;
   color:var(--jarvis-text-muted)!important;
 }
@@ -57,12 +61,13 @@ body{min-height:100%;}
 .jarvis-home-main{align-items:stretch!important;overflow:hidden!important;padding-bottom:0!important;min-height:0!important}
 .jarvis-home-content{justify-content:flex-end!important;transform:none!important;overflow:hidden!important;padding-bottom:max(8px,env(safe-area-inset-bottom))!important;min-height:0!important}
 
-/* Idle: the entire logo + text group is one centered unit. */
+/* Idle: logo + greeting are a single tightly-sized centered unit. */
 .jarvis-home .jarvis-hero{
   position:fixed!important;
   left:50%!important;
   top:calc(var(--jarvis-visual-height,100vh) / 2)!important;
-  width:min(100%,820px)!important;
+  width:max-content!important;
+  max-width:100%!important;
   height:auto!important;
   margin:0!important;
   padding:0!important;
@@ -72,6 +77,7 @@ body{min-height:100%;}
   transform:translate(-50%,-50%)!important;
   transform-origin:center center!important;
   align-items:center!important;
+  justify-content:center!important;
   text-align:center!important;
   transition:top 260ms ease,transform 260ms ease!important;
 }
@@ -90,8 +96,8 @@ body{min-height:100%;}
 .jarvis-command-actions{display:flex!important;align-items:center!important;gap:6px!important;margin-left:auto!important;min-width:0!important;flex-shrink:0!important}
 .jarvis-composer-icon,.jarvis-send-button{flex:0 0 34px!important}
 .jarvis-upload-button{display:flex!important;align-items:center!important;justify-content:center!important}
-/* 5% smaller than the current 214px core. */
-.jarvis-black-hole{flex:0 0 203px!important;width:203px!important;height:203px!important;min-width:203px!important;min-height:203px!important}
+/* Logo: 4% smaller than the immediately previous 203px size. */
+.jarvis-black-hole{flex:0 0 195px!important;width:195px!important;height:195px!important;min-width:195px!important;min-height:195px!important}
 
 /* Composer is always pinned to the bottom of the visible viewport. */
 .jarvis-home .jarvis-command-zone{
@@ -124,9 +130,10 @@ body{min-height:100%;}
 .jarvis-home.keyboard-open .jarvis-hero{
   left:50%!important;right:auto!important;
   top:calc(56px + (var(--jarvis-visual-height,100vh) - var(--jarvis-composer-height,0px) - var(--jarvis-composer-gap) - 56px) / 2)!important;
-  width:min(100%,820px)!important;height:auto!important;margin:0!important;padding:0!important;
+  width:max-content!important;max-width:100%!important;height:auto!important;margin:0!important;padding:0!important;
   pointer-events:none!important;
   align-items:center!important;
+  justify-content:center!important;
   text-align:center!important;
   transform:translate(-50%,-50%) scale(.80)!important;
   transform-origin:center center!important;
