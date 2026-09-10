@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Maximize2, Mic, MicOff, Plus } from 'lucide-react';
+import { ArrowUp, Maximize2, Minimize2, Mic, MicOff, Plus } from 'lucide-react';
 import { AppTheme } from '../types';
 import '../styles/dashboard-tables.css';
 import '../styles/jarvis-home.css';
@@ -47,14 +47,13 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
 
   useEffect(() => {
     const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
+    if (!el || isExpanded) return;
     const lineHeight = 24;
     const maxHeight = lineHeight * 5;
-    const naturalHeight = Math.max(el.scrollHeight, lineHeight * 2);
-    el.style.height = `${Math.min(naturalHeight, maxHeight)}px`;
+    el.style.height = `${lineHeight * 2}px`;
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, lineHeight * 2), maxHeight)}px`;
     el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
-  }, [prompt]);
+  }, [prompt, isExpanded]);
 
   useEffect(() => {
     const el = composerRef.current;
@@ -101,6 +100,11 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     textareaRef.current?.focus();
   };
 
+  const toggleExpand = () => {
+    setIsExpanded(value => !value);
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+
   const showExpand = prompt.includes('\n') || prompt.length > 90;
 
   return (
@@ -134,7 +138,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
                   <input ref={fileInputRef} type="file" hidden onChange={handleFilePick} />
                 </div>
                 <div className="jarvis-command-actions">
-                  {showExpand && <button type="button" onClick={() => setIsExpanded(v => !v)} aria-label={isExpanded ? 'Collapse message box' : 'Expand message box'} title={isExpanded ? 'Collapse' : 'Expand'} className={`jarvis-composer-icon jarvis-expand-button ${isExpanded ? 'is-active' : ''}`}><Maximize2 size={16} /></button>}
+                  {showExpand && <button type="button" onClick={toggleExpand} aria-label={isExpanded ? 'Close expanded message box' : 'Expand message box'} title={isExpanded ? 'Close expanded composer' : 'Expand composer'} className={`jarvis-composer-icon jarvis-expand-button ${isExpanded ? 'is-active' : ''}`}>{isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>}
                   <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon ${isListening ? 'is-listening' : ''}`}>{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button>
                   <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="jarvis-send-button"><ArrowUp size={17} /></button>
                 </div>
