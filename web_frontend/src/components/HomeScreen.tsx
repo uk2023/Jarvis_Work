@@ -26,24 +26,40 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
 
   useEffect(() => {
     const viewport = window.visualViewport;
-    if (!viewport) return;
+    const isMobile = window.matchMedia('(max-width: 640px)').matches;
+    if (!isMobile) return;
+
     const update = () => {
-      const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
-      const open = keyboardOffset > 120;
+      const visualHeight = viewport?.height ?? window.innerHeight;
+      const keyboardOffset = Math.max(0, window.innerHeight - visualHeight);
+      const focused = document.activeElement === textareaRef.current;
+      const open = keyboardOffset > 80 || focused;
+
       setIsKeyboardOpen(open);
       document.documentElement.style.setProperty('--jarvis-keyboard-offset', `${open ? keyboardOffset : 0}px`);
-      document.documentElement.style.setProperty('--jarvis-visual-height', `${viewport.height}px`);
+      document.documentElement.style.setProperty('--jarvis-visual-height', `${visualHeight}px`);
       const composerHeight = composerRef.current?.getBoundingClientRect().height ?? 0;
-      const available = Math.max(0, viewport.height - 56 - composerHeight - 16);
-      const heroScale = open ? Math.max(0.18, Math.min(0.46, (available / 420) * 0.46)) : 1;
+      const available = Math.max(0, visualHeight - 56 - composerHeight - 16);
+      const heroScale = open ? Math.max(0.18, Math.min(0.40, (available / 420) * 0.40)) : 1;
       document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
     };
+
+    const handleFocus = () => setIsKeyboardOpen(true);
+    const handleBlur = () => window.setTimeout(update, 120);
+
     update();
-    viewport.addEventListener('resize', update);
-    viewport.addEventListener('scroll', update);
+    viewport?.addEventListener('resize', update);
+    viewport?.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
+    textareaRef.current?.addEventListener('focus', handleFocus);
+    textareaRef.current?.addEventListener('blur', handleBlur);
+
     return () => {
-      viewport.removeEventListener('resize', update);
-      viewport.removeEventListener('scroll', update);
+      viewport?.removeEventListener('resize', update);
+      viewport?.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+      textareaRef.current?.removeEventListener('focus', handleFocus);
+      textareaRef.current?.removeEventListener('blur', handleBlur);
       document.documentElement.style.removeProperty('--jarvis-keyboard-offset');
       document.documentElement.style.removeProperty('--jarvis-visual-height');
       document.documentElement.style.removeProperty('--jarvis-composer-height');
@@ -63,7 +79,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight);
     el.style.setProperty('height', `${nextHeight}px`, 'important');
     el.style.setProperty('overflow-y', contentHeight > maxHeight ? 'auto' : 'hidden', 'important');
-    // Expand appears only when the fourth visible line is needed.
     setShowExpand(contentHeight > lineHeight * 3 + 1);
   }, [prompt, isExpanded]);
 
@@ -76,9 +91,9 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const viewport = window.visualViewport;
       if (viewport) {
         const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
-        const open = keyboardOffset > 120;
+        const open = keyboardOffset > 80 || document.activeElement === textareaRef.current;
         const available = Math.max(0, viewport.height - 56 - height - 16);
-        const heroScale = open ? Math.max(0.18, Math.min(0.46, (available / 420) * 0.46)) : 1;
+        const heroScale = open ? Math.max(0.18, Math.min(0.40, (available / 420) * 0.40)) : 1;
         document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
       }
     };
@@ -159,7 +174,6 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
                   <input ref={fileInputRef} type="file" hidden onChange={handleFilePick} />
                 </div>
                 <div className="jarvis-command-actions">
-                  {/* Keep a permanent 34px expand slot so showing the button never reflows the composer. */}
                   <button type="button" onClick={toggleExpand} aria-label={isExpanded ? 'Close expanded message box' : 'Expand message box'} title={isExpanded ? 'Close expanded composer' : 'Expand composer'} className={`jarvis-composer-icon jarvis-expand-button ${isExpanded ? 'is-active' : ''} ${!showExpand && !isExpanded ? 'is-placeholder' : ''}`} tabIndex={showExpand || isExpanded ? 0 : -1} aria-hidden={!showExpand && !isExpanded}>{isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
                   <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon jarvis-mic-button ${isListening ? 'is-listening' : ''}`}><Mic size={16} /></button>
                   <button type="submit" disabled={!prompt.trim()} aria-label="Send" className="jarvis-send-button"><ArrowUp size={17} /></button>
