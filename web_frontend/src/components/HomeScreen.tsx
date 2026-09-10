@@ -33,6 +33,11 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       setIsKeyboardOpen(open);
       document.documentElement.style.setProperty('--jarvis-keyboard-offset', `${open ? keyboardOffset : 0}px`);
       document.documentElement.style.setProperty('--jarvis-visual-height', `${viewport.height}px`);
+
+      const composerHeight = composerRef.current?.getBoundingClientRect().height ?? 0;
+      const available = Math.max(0, viewport.height - 56 - composerHeight - 16);
+      const heroScale = open ? Math.max(0.18, Math.min(0.46, (available / 420) * 0.46)) : 1;
+      document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
     };
     update();
     viewport.addEventListener('resize', update);
@@ -43,6 +48,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       document.documentElement.style.removeProperty('--jarvis-keyboard-offset');
       document.documentElement.style.removeProperty('--jarvis-visual-height');
       document.documentElement.style.removeProperty('--jarvis-composer-height');
+      document.documentElement.style.removeProperty('--jarvis-keyboard-hero-scale');
     };
   }, []);
 
@@ -54,7 +60,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     const minHeight = lineHeight * 2;
     const maxHeight = lineHeight * 5;
 
-    // Reset only for measurement, then clamp to exactly 2–5 visible lines.
+    // Measure the real content first; then clamp the visible editor to exactly 2–5 lines.
     el.style.height = `${minHeight}px`;
     el.style.overflowY = 'hidden';
     const contentHeight = el.scrollHeight;
@@ -67,7 +73,17 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   useEffect(() => {
     const el = composerRef.current;
     if (!el) return;
-    const update = () => document.documentElement.style.setProperty('--jarvis-composer-height', `${Math.ceil(el.getBoundingClientRect().height)}px`);
+    const update = () => {
+      document.documentElement.style.setProperty('--jarvis-composer-height', `${Math.ceil(el.getBoundingClientRect().height)}px`);
+      const viewport = window.visualViewport;
+      if (viewport) {
+        const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
+        const open = keyboardOffset > 120;
+        const available = Math.max(0, viewport.height - 56 - el.getBoundingClientRect().height - 16);
+        const heroScale = open ? Math.max(0.18, Math.min(0.46, (available / 420) * 0.46)) : 1;
+        document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
+      }
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(el);
