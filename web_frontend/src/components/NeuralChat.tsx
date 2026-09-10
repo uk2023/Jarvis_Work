@@ -60,7 +60,7 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
   const speakText = (text: string) => { if (!('speechSynthesis' in window)) return; speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate=1.05; u.pitch=.95; speechSynthesis.speak(u); };
 
   return <div id="neural-chat-container" className={`flex flex-col h-full w-full min-h-0 overflow-hidden relative neural-chat-shell ${isExpanded ? 'chat-composer-expanded' : ''}`}>
-    <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-6 py-4 space-y-4 overscroll-contain">
+    <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-6 py-4 space-y-4 overscroll-contain neural-messages-scroll">
       {messages.length === 0 ? <div className="h-full flex items-center justify-center"><OrganismCore telemetry={telemetry} onOpenCLI={onOpenCLI} onQuickPrompt={onQuickPrompt} theme={theme} /></div> :
       <div className="max-w-3xl mx-auto space-y-4 w-full pb-2">
         <div className={`flex items-center justify-between pb-2 border-b text-xs font-mono ${isDark?'border-white/5 text-white/40':'border-slate-200 text-slate-400'}`}>
@@ -93,11 +93,11 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
       </div>}
     </div>
 
-    <div style={{ position: 'sticky', bottom: 0, overscrollBehavior: 'none', flexShrink: 0 }} className={`neural-composer-dock shrink-0 z-20 ${isDark?'bg-[#06080e]/95 border-white/10':'bg-white/95 border-slate-200'}`}>
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, width: '100%', overscrollBehavior: 'none', flexShrink: 0, touchAction: 'none' }} className={`neural-composer-dock shrink-0 z-50 ${isDark?'bg-[#06080e]/95 border-white/10':'bg-white/95 border-slate-200'}`}>
       <form onSubmit={handleSubmit} className="neural-composer-form">
         <div className="neural-composer">
           <div className="neural-input-wrap">
-            <textarea ref={textareaRef} rows={2} value={inputText} onChange={autoResize} onKeyDown={handleKeyDown} onTouchMove={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()} placeholder="Message JARVIS..." style={{ overscrollBehavior: 'contain', touchAction: 'pan-y' }} className={`neural-prompt-input ${isDark?'text-white placeholder-white/40':'text-slate-900 placeholder-slate-400'}`} />
+            <textarea ref={textareaRef} rows={2} value={inputText} onChange={autoResize} onKeyDown={handleKeyDown} onTouchStart={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} style={{ overscrollBehavior: 'contain', overscrollBehaviorY: 'contain', touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }} className={`neural-prompt-input ${isDark?'text-white placeholder-white/40':'text-slate-900 placeholder-slate-400'}`} placeholder="Message JARVIS..." />
           </div>
           <div className="neural-composer-footer">
             <button type="button" className="neural-action neural-plus" title="Attach"><Plus size={17}/></button>
