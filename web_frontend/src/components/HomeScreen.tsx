@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Sparkles, ArrowUp, Mic, MicOff, Terminal, Maximize2, Minimize2 } from 'lucide-react';
+import { Sparkles, ArrowUp, Mic, MicOff, Terminal, Maximize2, Minimize2, Plus } from 'lucide-react';
 import { AppTheme } from '../types';
 import '../styles/dashboard-tables.css';
 import '../styles/jarvis-home.css';
@@ -22,6 +22,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   const [canExpand, setCanExpand] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -53,7 +54,8 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     const collapsedMax = lineHeight * 5;
     const expandedMax = lineHeight * 12;
     const naturalHeight = Math.max(el.scrollHeight, lineHeight * 2);
-    setCanExpand(el.scrollHeight > lineHeight * 2 + 1);
+    const reachesThirdLine = el.scrollHeight > lineHeight * 2 + 1;
+    setCanExpand(reachesThirdLine);
     el.style.height = `${Math.min(naturalHeight, isExpanded ? expandedMax : collapsedMax)}px`;
     el.style.overflowY = el.scrollHeight > (isExpanded ? expandedMax : collapsedMax) ? 'auto' : 'hidden';
   }, [prompt, isExpanded]);
@@ -95,6 +97,14 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     } else setIsListening(false);
   };
 
+  const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPrompt(current => current ? `${current}\n${file.name}` : file.name);
+    e.target.value = '';
+    textareaRef.current?.focus();
+  };
+
   return (
     <div className={`jarvis-home ${isKeyboardOpen ? 'keyboard-open' : ''} ${isExpanded ? 'composer-expanded' : ''} ${isDark ? 'jarvis-home-dark' : 'jarvis-home-light'}`}>
       <div className="jarvis-space-field" aria-hidden="true">
@@ -122,7 +132,11 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
                 <textarea ref={textareaRef} value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={handleKeyDown} rows={2} maxLength={4000} placeholder="Message JARVIS..." aria-label="Message JARVIS" aria-multiline="true" className="jarvis-prompt-input" />
               </div>
               <div className="jarvis-composer-footer">
-                <span className="jarvis-native-badge"><Terminal size={11} /> {isExpanded ? 'EXPANDED' : canExpand ? 'MULTI-LINE' : 'READY'}</span>
+                <div className="jarvis-composer-tools">
+                  <button type="button" onClick={() => fileInputRef.current?.click()} aria-label="Upload file" title="Upload file" className="jarvis-composer-icon jarvis-upload-button"><Plus size={17} /></button>
+                  <input ref={fileInputRef} type="file" hidden onChange={handleFilePick} />
+                  <span className="jarvis-native-badge"><Terminal size={11} /> {isExpanded ? 'EXPANDED' : canExpand ? 'MULTI-LINE' : 'READY'}</span>
+                </div>
                 <div className="jarvis-command-actions">
                   {canExpand && <button type="button" onClick={() => setIsExpanded(value => !value)} aria-label={isExpanded ? 'Collapse composer' : 'Expand composer'} title={isExpanded ? 'Collapse' : 'Expand'} className="jarvis-composer-icon jarvis-expand-button">{isExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>}
                   <button type="button" onClick={toggleMic} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`jarvis-composer-icon ${isListening ? 'is-listening' : ''}`}>{isListening ? <MicOff size={16} /> : <Mic size={16} />}</button>
