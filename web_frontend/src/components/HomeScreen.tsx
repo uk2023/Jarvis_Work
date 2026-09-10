@@ -191,6 +191,13 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
 
   return (
     <div className={`jarvis-home ${isKeyboardOpen ? 'keyboard-open' : ''} ${isExpanded ? 'composer-expanded' : ''} ${isDark ? 'jarvis-home-dark' : 'jarvis-home-light'}`}>
+      <style>{`@media (max-width:640px){
+        .jarvis-home:not(.keyboard-open) .jarvis-hero{transform:translate(-50%,-50%) scale(.972)!important;}
+        .jarvis-home:not(.keyboard-open):has(.jarvis-prompt-input:focus) .jarvis-hero{transform:translate(-50%,-50%) scale(.972)!important;}
+        .jarvis-home:not(.keyboard-open):has(.jarvis-prompt-input:focus) .jarvis-identity{display:flex!important;visibility:visible!important;opacity:1!important;height:auto!important;width:max-content!important;max-height:none!important;max-width:calc(100vw - 24px)!important;margin:9px auto 0!important;padding:0!important;overflow:visible!important;pointer-events:auto!important;}
+        .jarvis-home:not(.keyboard-open) .jarvis-identity h1{font-size:37px!important;}
+        .jarvis-home:not(.keyboard-open) .jarvis-identity p{font-size:26px!important;}
+      }`}</style>
       <div className="jarvis-space-field" aria-hidden="true">
         <span className="jarvis-star s1" /><span className="jarvis-star s2" /><span className="jarvis-star s3" /><span className="jarvis-star s4" />
         <span className="jarvis-nebula n1" /><span className="jarvis-nebula n2" />
