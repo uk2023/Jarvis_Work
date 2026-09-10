@@ -21,6 +21,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [canExpand, setCanExpand] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -40,6 +41,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       viewport.removeEventListener('resize', update);
       viewport.removeEventListener('scroll', update);
       document.documentElement.style.removeProperty('--jarvis-keyboard-offset');
+      document.documentElement.style.removeProperty('--jarvis-composer-height');
     };
   }, []);
 
@@ -55,6 +57,22 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     el.style.height = `${Math.min(naturalHeight, isExpanded ? expandedMax : collapsedMax)}px`;
     el.style.overflowY = el.scrollHeight > (isExpanded ? expandedMax : collapsedMax) ? 'auto' : 'hidden';
   }, [prompt, isExpanded]);
+
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    const update = () => {
+      document.documentElement.style.setProperty('--jarvis-composer-height', `${Math.ceil(el.getBoundingClientRect().height)}px`);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    window.addEventListener('resize', update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,7 +132,7 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
           </section>
 
           <section className={`jarvis-command-zone ${isExpanded ? 'is-expanded' : ''}`}>
-            <form onSubmit={handleSubmit} className="jarvis-composer">
+            <form ref={composerRef} onSubmit={handleSubmit} className="jarvis-composer">
               <div className="jarvis-input-wrap">
                 <Sparkles size={14} className="jarvis-input-spark" />
                 <textarea
