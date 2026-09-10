@@ -24,7 +24,6 @@ html:has(#neural-chat-container),body:has(#neural-chat-container),#root:has(#neu
 #neural-chat-container textarea.neural-prompt-input{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;max-height:120px!important;resize:none!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain!important;overscroll-behavior-y:contain!important;overflow-anchor:none!important;touch-action:pan-y!important;-webkit-overflow-scrolling:touch!important;scroll-behavior:auto!important;scroll-margin:0!important;position:relative!important}
 #neural-chat-container textarea.neural-prompt-input:focus{scroll-margin:0!important;outline:none!important}
 #neural-chat-container textarea.neural-prompt-input::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}
-}
 
 /* Keep the textarea as the ONLY scrolling surface; prevent mobile browser scroll chaining. */
 @media(max-width:640px){
