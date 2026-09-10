@@ -5,7 +5,7 @@ import '../styles/admin-sidebar-nav.css';
 
 const items = [
   { label: 'Monitor', title: 'Monitor (System Telemetry & Vitals)', icon: Activity },
-  { label: 'Trace', title: 'Trace Inspector', icon: FileSearch },
+  { label: 'Trace', title: 'Trace Inspector (Turn Execution & Latency Waterfall)', icon: FileSearch },
   { label: 'Memory & DB', title: 'Memory & Database (Schema Contracts & Evolution DB)', icon: Database },
   { label: 'Reasoning', title: 'System Reasoning (Overnight Learning & Self-Improvement)', icon: Sparkles },
   { label: 'Organs', title: 'Organs (Organ Introspection & Heartbeat Network)', icon: Layers },
