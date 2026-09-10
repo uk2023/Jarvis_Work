@@ -19,7 +19,7 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const touchYRef = useRef<number | null>(null);
+  const textareaTouchingRef = useRef(false);
   const isDark = theme === 'dark';
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' }), []);
@@ -27,26 +27,63 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
   useEffect(() => { if (messages.length) scrollToBottom('smooth'); }, [messages.length, scrollToBottom]);
   useEffect(() => { if (isThinking) scrollToBottom('smooth'); }, [isThinking, scrollToBottom]);
 
+  // Only resize events should reposition the composer. Android can emit a
+  // visualViewport scroll while a focused textarea is being swiped; reacting to
+  // that event makes the composer itself appear to pan with the keyboard.
   useEffect(() => {
     const updateViewport = () => {
       const vv = window.visualViewport;
       if (!vv) { setKeyboardBottom(0); return; }
       const bottom = Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
-      setKeyboardBottom(bottom);
+      if (!textareaTouchingRef.current) setKeyboardBottom(bottom);
     };
     updateViewport();
     const vv = window.visualViewport;
     window.addEventListener('resize', updateViewport, { passive: true });
     window.addEventListener('orientationchange', updateViewport, { passive: true });
     vv?.addEventListener('resize', updateViewport, { passive: true });
-    vv?.addEventListener('scroll', updateViewport, { passive: true });
     return () => {
       window.removeEventListener('resize', updateViewport);
       window.removeEventListener('orientationchange', updateViewport);
       vv?.removeEventListener('resize', updateViewport);
-      vv?.removeEventListener('scroll', updateViewport);
     };
   }, []);
+
+  // React touch handlers are not reliably non-passive on every Android WebView.
+  // Consume textarea swipes natively so the browser cannot pan the visual viewport.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    let lastY = 0;
+    const onStart = (event: TouchEvent) => {
+      textareaTouchingRef.current = true;
+      lastY = event.touches[0]?.clientY ?? 0;
+      event.stopPropagation();
+    };
+    const onMove = (event: TouchEvent) => {
+      const y = event.touches[0]?.clientY;
+      if (y == null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const delta = lastY - y;
+      if (delta) el.scrollTop += delta;
+      lastY = y;
+    };
+    const onEnd = (event: TouchEvent) => {
+      event.stopPropagation();
+      textareaTouchingRef.current = false;
+    };
+    el.addEventListener('touchstart', onStart, { passive: false });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd, { passive: false });
+    el.addEventListener('touchcancel', onEnd, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', onEnd);
+    };
+  }, [isExpanded]);
 
   useEffect(() => {
     const html = document.documentElement;
@@ -80,23 +117,6 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 640) { e.preventDefault(); handleSubmit(e); }
   };
-  const handleTouchStart = (e: React.TouchEvent<HTMLTextAreaElement>) => {
-    e.stopPropagation();
-    touchYRef.current = e.touches[0]?.clientY ?? null;
-  };
-  const handleTouchMove = (e: React.TouchEvent<HTMLTextAreaElement>) => {
-    e.stopPropagation();
-    const el = textareaRef.current;
-    const y = e.touches[0]?.clientY;
-    if (!el || y == null || touchYRef.current == null) return;
-    // Do not let Android pan the visual/layout viewport to follow the caret.
-    // Consume the gesture here and move only the textarea's own scroll position.
-    e.preventDefault();
-    const delta = touchYRef.current - y;
-    if (delta !== 0) el.scrollTop += delta;
-    touchYRef.current = y;
-  };
-  const handleTouchEnd = (e: React.TouchEvent<HTMLTextAreaElement>) => { e.stopPropagation(); touchYRef.current = null; };
   const autoResize = (e: React.ChangeEvent<HTMLTextAreaElement>) => setInputText(e.target.value);
   const toggleExpand = () => { setIsExpanded(v => !v); requestAnimationFrame(() => textareaRef.current?.focus()); };
   const toggleSpeechRecognition = () => {
@@ -115,7 +135,7 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({ messages, isThinking, on
       <form onSubmit={handleSubmit} className="neural-composer-form" style={{width:'100%',maxWidth:'100%',overflow:'visible',touchAction:'none'}}>
         <div className="neural-composer" style={{width:'min(100%, 820px)',maxWidth:'820px',margin:'0 auto',boxSizing:'border-box',padding:'10px',borderRadius:'22px',overflow:'visible',background:isDark?'rgba(6,8,14,.95)':'rgba(255,255,255,.95)',border:`1px solid ${isDark?'rgba(255,255,255,.10)':'rgba(226,232,240,1)'}`,boxShadow:'0 14px 42px rgba(0,0,0,.18),0 0 30px rgba(70,110,220,.08)',backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)'}}>
           <div className="neural-input-wrap" style={{minWidth:0,maxWidth:'100%',overflow:'hidden',touchAction:'none'}}>
-            <textarea ref={textareaRef} rows={2} value={inputText} onChange={autoResize} onKeyDown={handleKeyDown} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onWheel={(e)=>{e.stopPropagation();}} onPointerDown={(e)=>e.stopPropagation()} onPointerMove={(e)=>e.stopPropagation()} style={{display:'block',width:'100%',minWidth:0,maxWidth:'100%',minHeight:'48px',maxHeight:'120px',boxSizing:'border-box',resize:'none',overflowX:'hidden',overflowY:'auto',padding:'3px 6px',border:0,outline:0,background:'transparent',fontSize:'15px',lineHeight:'24px',color:isDark?'#fff':'#0f172a',overscrollBehavior:'contain',overscrollBehaviorY:'contain',touchAction:'none',WebkitOverflowScrolling:'auto',scrollBehavior:'auto',scrollMargin:0,overflowAnchor:'none'}} className={`neural-prompt-input ${isDark?'text-white placeholder-white/40':'text-slate-900 placeholder-slate-400'}`} placeholder="Message JARVIS..." />
+            <textarea ref={textareaRef} rows={2} value={inputText} onChange={autoResize} onKeyDown={handleKeyDown} onWheel={(e)=>{e.stopPropagation();}} onPointerDown={(e)=>e.stopPropagation()} onPointerMove={(e)=>e.stopPropagation()} style={{display:'block',width:'100%',minWidth:0,maxWidth:'100%',minHeight:'48px',maxHeight:'120px',boxSizing:'border-box',resize:'none',overflowX:'hidden',overflowY:'auto',padding:'3px 6px',border:0,outline:0,background:'transparent',fontSize:'15px',lineHeight:'24px',color:isDark?'#fff':'#0f172a',overscrollBehavior:'none',overscrollBehaviorY:'none',touchAction:'none',WebkitOverflowScrolling:'auto',scrollBehavior:'auto',scrollMargin:0,overflowAnchor:'none'}} className={`neural-prompt-input ${isDark?'text-white placeholder-white/40':'text-slate-900 placeholder-slate-400'}`} placeholder="Message JARVIS..." />
           </div>
           <div className="neural-composer-footer" style={{display:'flex',alignItems:'center',justifyContent:'space-between',minHeight:34,padding:'6px 0 0',marginTop:4,borderTop:0}}>
             <button type="button" className="neural-action neural-plus" title="Attach" style={{width:34,height:34,borderRadius:11,display:'flex',alignItems:'center',justifyContent:'center'}}><Plus size={17}/></button>
