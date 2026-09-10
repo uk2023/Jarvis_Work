@@ -29,37 +29,56 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
     const isMobile = window.matchMedia('(max-width: 640px)').matches;
     if (!isMobile) return;
 
+    let settleTimer = 0;
     const update = () => {
       const visualHeight = viewport?.height ?? window.innerHeight;
       const keyboardOffset = Math.max(0, window.innerHeight - visualHeight);
       const focused = document.activeElement === textareaRef.current;
-      const open = keyboardOffset > 80 || focused;
+      // Focus alone must not keep the keyboard-open layout alive after Android hides IME.
+      // visualViewport is the source of truth; focus only helps during the keyboard transition.
+      const open = keyboardOffset > 80 || (focused && keyboardOffset > 24);
 
       setIsKeyboardOpen(open);
       document.documentElement.style.setProperty('--jarvis-keyboard-offset', `${open ? keyboardOffset : 0}px`);
       document.documentElement.style.setProperty('--jarvis-visual-height', `${visualHeight}px`);
       const composerHeight = composerRef.current?.getBoundingClientRect().height ?? 0;
+      document.documentElement.style.setProperty('--jarvis-composer-height', `${Math.ceil(composerHeight)}px`);
       const available = Math.max(0, visualHeight - 56 - composerHeight - 16);
       const heroScale = open ? Math.max(0.18, Math.min(0.40, (available / 420) * 0.40)) : 1;
       document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
     };
 
-    const handleFocus = () => setIsKeyboardOpen(true);
-    const handleBlur = () => window.setTimeout(update, 120);
+    const settleAfterKeyboard = () => {
+      window.clearTimeout(settleTimer);
+      let attempts = 0;
+      const settle = () => {
+        update();
+        attempts += 1;
+        if (attempts < 8) settleTimer = window.setTimeout(settle, 80);
+      };
+      settle();
+    };
 
     update();
     viewport?.addEventListener('resize', update);
     viewport?.addEventListener('scroll', update);
     window.addEventListener('resize', update);
-    textareaRef.current?.addEventListener('focus', handleFocus);
-    textareaRef.current?.addEventListener('blur', handleBlur);
+    window.addEventListener('orientationchange', settleAfterKeyboard);
+    window.addEventListener('pageshow', update);
+    document.addEventListener('visibilitychange', update);
+    textareaRef.current?.addEventListener('focus', update);
+    textareaRef.current?.addEventListener('blur', settleAfterKeyboard);
 
     return () => {
+      window.clearTimeout(settleTimer);
       viewport?.removeEventListener('resize', update);
       viewport?.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
-      textareaRef.current?.removeEventListener('focus', handleFocus);
-      textareaRef.current?.removeEventListener('blur', handleBlur);
+      window.removeEventListener('orientationchange', settleAfterKeyboard);
+      window.removeEventListener('pageshow', update);
+      document.removeEventListener('visibilitychange', update);
+      textareaRef.current?.removeEventListener('focus', update);
+      textareaRef.current?.removeEventListener('blur', settleAfterKeyboard);
       document.documentElement.style.removeProperty('--jarvis-keyboard-offset');
       document.documentElement.style.removeProperty('--jarvis-visual-height');
       document.documentElement.style.removeProperty('--jarvis-composer-height');
@@ -91,7 +110,8 @@ export function HomeScreen({ theme, onStartChatWithPrompt }: HomeScreenProps) {
       const viewport = window.visualViewport;
       if (viewport) {
         const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
-        const open = keyboardOffset > 80 || document.activeElement === textareaRef.current;
+        const focused = document.activeElement === textareaRef.current;
+        const open = keyboardOffset > 80 || (focused && keyboardOffset > 24);
         const available = Math.max(0, viewport.height - 56 - height - 16);
         const heroScale = open ? Math.max(0.18, Math.min(0.40, (available / 420) * 0.40)) : 1;
         document.documentElement.style.setProperty('--jarvis-keyboard-hero-scale', String(heroScale));
