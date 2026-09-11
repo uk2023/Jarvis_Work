@@ -20,6 +20,12 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  Activity,
+  FileSearch,
+  Database,
+  Sparkles,
+  Layers,
+  Terminal,
 } from 'lucide-react';
 import { AppTheme, SessionItem } from '../types';
 
@@ -72,6 +78,7 @@ export function ChatThreadsSidebar({
   const [menuOpenSessionId, setMenuOpenSessionId] = useState<string | null>(null);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
+  const [inspectionOpen, setInspectionOpen] = useState(true);
 
   // Collapsible section states
   const [pinnedOpen, setPinnedOpen] = useState(true);
@@ -82,6 +89,15 @@ export function ChatThreadsSidebar({
   const editInputRef = useRef<HTMLInputElement>(null);
 
   const isDark = theme === 'dark';
+
+  // Keep the global view marker in sync so the existing contextual sub-header
+  // is hidden on Home/Chat and only shown while one of the six inspection views is active.
+  useEffect(() => {
+    document.documentElement.dataset.jarvisView = currentView;
+    return () => {
+      delete document.documentElement.dataset.jarvisView;
+    };
+  }, [currentView]);
 
   // Focus input when editing begins
   useEffect(() => {
@@ -134,6 +150,26 @@ export function ChatThreadsSidebar({
     s => s.category !== 'Today' && s.category !== 'Yesterday' && s.category !== 'Previous 7 Days'
   );
 
+  const inspectionItems = [
+    { label: 'Monitor', icon: Activity, active: currentView === 'dashboard', section: 'monitor' as const, title: 'Cognitive Monitor' },
+    { label: 'Trace', icon: FileSearch, active: currentView === 'inspector', section: null, title: 'Trace Inspector' },
+    { label: 'Memory', icon: Database, active: currentView === 'dashboard' && currentView === 'dashboard', section: 'memory' as const, title: 'Memory & Database' },
+    { label: 'Reasoning', icon: Sparkles, active: currentView === 'dashboard', section: 'reasoning' as const, title: 'System Reasoning' },
+    { label: 'Organs', icon: Layers, active: currentView === 'dashboard', section: 'organs' as const, title: 'Organ Introspection' },
+    { label: 'CLI', icon: Terminal, active: currentView === 'cli', section: null, title: 'Virtual CLI' },
+  ];
+
+  const navigateInspection = (section: 'monitor' | 'memory' | 'reasoning' | 'organs' | null, view: 'dashboard' | 'inspector' | 'cli') => {
+    if (!onNavigateToView) return;
+    if (view === 'dashboard') {
+      onNavigateToView('dashboard');
+      window.dispatchEvent(new CustomEvent('jarvis:inspection-section', { detail: section || 'monitor' }));
+    } else {
+      onNavigateToView(view);
+    }
+    onClose();
+  };
+
   const renderSessionItem = (session: SessionItem) => {
     const isActive = session.sessionId === activeSessionId;
     const isEditing = editingSessionId === session.sessionId;
@@ -154,7 +190,7 @@ export function ChatThreadsSidebar({
         onClick={() => {
           if (!isEditing) {
             onSelectSession(session.sessionId);
-            onClose(); // close on mobile
+            onClose();
           }
         }}
       >
@@ -168,7 +204,6 @@ export function ChatThreadsSidebar({
           }`}
         />
 
-        {/* Title or Inline Edit Input */}
         {isEditing ? (
           <form
             onSubmit={e => handleSaveRename(session.sessionId, e)}
@@ -186,32 +221,16 @@ export function ChatThreadsSidebar({
                   : 'bg-white border-brand-600 text-slate-900'
               }`}
             />
-            <button
-              type="submit"
-              className="p-1 text-emerald-500 hover:text-emerald-400 cursor-pointer"
-              title="Save"
-            >
-              <Check className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditingSessionId(null)}
-              className="p-1 text-slate-400 hover:text-slate-200 cursor-pointer"
-              title="Cancel"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+            <button type="submit" className="p-1 text-emerald-500 hover:text-emerald-400 cursor-pointer" title="Save"><Check className="w-3.5 h-3.5" /></button>
+            <button type="button" onClick={() => setEditingSessionId(null)} className="p-1 text-slate-400 hover:text-slate-200 cursor-pointer" title="Cancel"><X className="w-3.5 h-3.5" /></button>
           </form>
         ) : (
           <div className="flex-1 min-w-0 flex items-center justify-between gap-1">
             <span className="truncate leading-tight">{session.title}</span>
-            {session.pinned && (
-              <Pin className="w-2.5 h-2.5 text-brand-500 dark:text-brand-400 shrink-0 opacity-80" />
-            )}
+            {session.pinned && <Pin className="w-2.5 h-2.5 text-brand-500 dark:text-brand-400 shrink-0 opacity-80" />}
           </div>
         )}
 
-        {/* Three dots action trigger */}
         {!isEditing && (
           <div className="relative">
             <button
@@ -229,66 +248,22 @@ export function ChatThreadsSidebar({
             >
               <MoreVertical className="w-3 h-3" />
             </button>
-
-            {/* Contextual Options Menu */}
             {isMenuOpen && (
               <div
                 ref={menuRef}
                 className={`absolute right-0 top-6 w-36 rounded-xl border shadow-xl z-50 py-1 space-y-0.5 text-xs animate-in fade-in duration-100 ${
-                  isDark
-                    ? 'bg-[#0f1422] border-white/15 text-slate-200 shadow-black/80'
-                    : 'bg-white border-slate-200 text-slate-800 shadow-slate-300/50'
+                  isDark ? 'bg-[#0f1422] border-white/15 text-slate-200 shadow-black/80' : 'bg-white border-slate-200 text-slate-800 shadow-slate-300/50'
                 }`}
                 onClick={e => e.stopPropagation()}
               >
-                {/* Pin / Unpin */}
-                <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    onTogglePinSession(session.sessionId);
-                    setMenuOpenSessionId(null);
-                  }}
-                  className={`w-full px-2.5 py-1.5 flex items-center gap-2 text-left transition cursor-pointer ${
-                    isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'
-                  }`}
-                >
-                  {session.pinned ? (
-                    <>
-                      <PinOff className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Unpin</span>
-                    </>
-                  ) : (
-                    <>
-                      <Pin className="w-3.5 h-3.5 text-brand-400" />
-                      <span>Pin chat</span>
-                    </>
-                  )}
+                <button onClick={e => { e.stopPropagation(); onTogglePinSession(session.sessionId); setMenuOpenSessionId(null); }} className={`w-full px-2.5 py-1.5 flex items-center gap-2 text-left transition cursor-pointer ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}>
+                  {session.pinned ? <><PinOff className="w-3.5 h-3.5 text-slate-400" /><span>Unpin</span></> : <><Pin className="w-3.5 h-3.5 text-brand-400" /><span>Pin chat</span></>}
                 </button>
-
-                {/* Rename */}
-                <button
-                  onClick={e => handleStartRename(session, e)}
-                  className={`w-full px-2.5 py-1.5 flex items-center gap-2 text-left transition cursor-pointer ${
-                    isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'
-                  }`}
-                >
-                  <Edit2 className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Rename</span>
+                <button onClick={e => handleStartRename(session, e)} className={`w-full px-2.5 py-1.5 flex items-center gap-2 text-left transition cursor-pointer ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}>
+                  <Edit2 className="w-3.5 h-3.5 text-slate-400" /><span>Rename</span>
                 </button>
-
-                {/* Delete */}
-                <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    onDeleteSession(session.sessionId);
-                    setMenuOpenSessionId(null);
-                  }}
-                  className={`w-full px-2.5 py-1.5 flex items-center gap-2 text-left text-rose-500 transition cursor-pointer ${
-                    isDark ? 'hover:bg-rose-500/15' : 'hover:bg-rose-50'
-                  }`}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Delete</span>
+                <button onClick={e => { e.stopPropagation(); onDeleteSession(session.sessionId); setMenuOpenSessionId(null); }} className={`w-full px-2.5 py-1.5 flex items-center gap-2 text-left text-rose-500 transition cursor-pointer ${isDark ? 'hover:bg-rose-500/15' : 'hover:bg-rose-50'}`}>
+                  <Trash2 className="w-3.5 h-3.5" /><span>Delete</span>
                 </button>
               </div>
             )}
@@ -300,309 +275,165 @@ export function ChatThreadsSidebar({
 
   return (
     <>
-      {/* Mobile Backdrop */}
-      {isOpen && (
-        <div
-          onClick={onClose}
-          className="fixed inset-0 bg-black/60 backdrop-blur-xs z-30 md:hidden"
-        />
-      )}
+      <style>{`
+        html[data-jarvis-view="home"] #app-root > div.flex-1.flex.flex-col > div:nth-child(2),
+        html[data-jarvis-view="user_chat"] #app-root > div.flex-1.flex.flex-col > div:nth-child(2) {
+          display: none !important;
+        }
+      `}</style>
 
-      {/* Main Sidebar Drawer */}
+      {isOpen && <div onClick={onClose} className="fixed inset-0 bg-black/60 backdrop-blur-xs z-30 md:hidden" />}
+
       <aside
-        className={`fixed inset-y-0 left-0 z-40 border-r transition-all duration-200 flex flex-col justify-between md:static md:translate-x-0 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        } ${isCollapsed ? 'md:w-16' : 'w-64'} ${
-          isDark
-            ? 'bg-[#080b14] border-white/10 text-slate-200'
-            : 'bg-white border-slate-200 text-slate-800 shadow-[2px_0_12px_rgba(0,0,0,0.03)]'
-        }`}
+        className={`fixed inset-y-0 left-0 z-40 border-r transition-all duration-200 flex flex-col justify-between md:static md:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'} ${isCollapsed ? 'md:w-16' : 'w-64'} ${isDark ? 'bg-[#080b14] border-white/10 text-slate-200' : 'bg-white border-slate-200 text-slate-800 shadow-[2px_0_12px_rgba(0,0,0,0.03)]'}`}
       >
-        {/* Top Header */}
         <div className="p-3 border-b border-slate-200 dark:border-white/10 space-y-2.5">
-          {/* Top Brand Bar */}
           <div className="flex items-center justify-between">
-            <button
-              onClick={() => {
-                if (onGoHome) onGoHome();
-                onClose();
-              }}
-              className="flex items-center gap-2 text-left cursor-pointer group select-none min-w-0"
-              title="Return to Home"
-            >
-              <div className="w-7 h-7 rounded-xl bg-brand-500/15 border border-brand-400/40 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
-                <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" />
-              </div>
-              {!isCollapsed && (
-                <span className="font-extrabold text-xs tracking-wider uppercase text-slate-900 dark:text-brand-400 group-hover:text-brand-600 dark:group-hover:text-brand-300 transition-colors truncate">
-                  JARVIS
-                </span>
-              )}
+            <button onClick={() => { if (onGoHome) onGoHome(); onClose(); }} className="flex items-center gap-2 text-left cursor-pointer group select-none min-w-0" title="Return to Home">
+              <div className="w-7 h-7 rounded-xl bg-brand-500/15 border border-brand-400/40 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0"><span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" /></div>
+              {!isCollapsed && <span className="font-extrabold text-xs tracking-wider uppercase text-slate-900 dark:text-brand-400 group-hover:text-brand-600 dark:group-hover:text-brand-300 transition-colors truncate">JARVIS</span>}
             </button>
-
-            {/* Desktop Collapse / Expand Toggle Button (Gemini Style) */}
-            <button
-              onClick={() => setIsCollapsed(!isCollapsed)}
-              className="hidden md:flex p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
-              title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            >
+            <button onClick={() => setIsCollapsed(!isCollapsed)} className="hidden md:flex p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition cursor-pointer" title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
               {isCollapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
             </button>
-
-            {/* Mobile Close Button */}
-            <button
-              onClick={onClose}
-              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 md:hidden text-slate-400 cursor-pointer"
-              title="Close sidebar"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 md:hidden text-slate-400 cursor-pointer" title="Close sidebar"><X className="w-4 h-4" /></button>
           </div>
 
-          {/* New Chat Button */}
           {isCollapsed ? (
-            <button
-              onClick={() => {
-                onNewChat();
-                onClose();
-              }}
-              className="w-10 h-10 mx-auto rounded-xl bg-brand-600 hover:bg-brand-500 text-white flex items-center justify-center transition cursor-pointer shadow-xs"
-              title="New Chat"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
+            <button onClick={() => { onNewChat(); onClose(); }} className="w-10 h-10 mx-auto rounded-xl bg-brand-600 hover:bg-brand-500 text-white flex items-center justify-center transition cursor-pointer shadow-xs" title="New Chat"><Plus className="w-4 h-4" /></button>
           ) : (
-            <button
-              onClick={() => {
-                onNewChat();
-                onClose();
-              }}
-              className="w-full py-2 px-3 rounded-xl bg-brand-600 hover:bg-brand-500 border border-brand-500 text-white flex items-center justify-center gap-2 text-xs font-semibold transition cursor-pointer shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>New Chat</span>
-            </button>
+            <button onClick={() => { onNewChat(); onClose(); }} className="w-full py-2 px-3 rounded-xl bg-brand-600 hover:bg-brand-500 border border-brand-500 text-white flex items-center justify-center gap-2 text-xs font-semibold transition cursor-pointer shadow-xs"><Plus className="w-3.5 h-3.5" /><span>New Chat</span></button>
           )}
 
-          {/* Search Threads input (only when expanded) */}
-          {!isCollapsed && (
-            <div
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm"
-              style={{ backgroundColor: 'var(--jarvis-surface)', borderColor: 'var(--jarvis-border)', color: 'var(--jarvis-text)' }}
-            >
-              <Search size={13} style={{ color: 'var(--jarvis-text-muted)' }} className="shrink-0" />
-              <input
-                type="text"
-                placeholder="Search chats..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="w-full bg-transparent outline-none text-sm"
-                style={{ color: 'var(--jarvis-text)' }}
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="text-slate-400 hover:text-slate-200 cursor-pointer"
-                >
-                  <X className="w-3 h-3" />
-                </button>
+          {/* Inspection navigation lives permanently below New Chat. */}
+          {isAdmin && (
+            <div className="pt-1">
+              <button
+                onClick={() => setInspectionOpen(!inspectionOpen)}
+                className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-[0.12em] transition ${isDark ? 'text-slate-400 hover:text-slate-200 hover:bg-white/5' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'}`}
+                title="Inspection navigation"
+              >
+                <span className="flex items-center gap-1.5"><Shield className="w-3 h-3 text-brand-500" /> Inspection</span>
+                {inspectionOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              </button>
+
+              {inspectionOpen && !isCollapsed && (
+                <div className="grid grid-cols-3 gap-1.5 mt-1.5">
+                  {inspectionItems.map(({ label, icon: Icon, section, title }) => {
+                    const active = section === 'memory'
+                      ? currentView === 'dashboard'
+                      : label === 'Monitor'
+                      ? currentView === 'dashboard'
+                      : label === 'Reasoning'
+                      ? currentView === 'dashboard'
+                      : label === 'Organs'
+                      ? currentView === 'dashboard'
+                      : label === 'Trace'
+                      ? currentView === 'inspector'
+                      : currentView === 'cli';
+                    return (
+                      <button
+                        key={label}
+                        onClick={() => navigateInspection(section, label === 'Trace' ? 'inspector' : label === 'CLI' ? 'cli' : 'dashboard')}
+                        className={`min-w-0 h-12 rounded-lg border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${active ? 'bg-brand-600 text-white border-brand-500 shadow-xs' : isDark ? 'bg-white/[0.025] border-white/10 text-slate-400 hover:text-white hover:bg-white/10' : 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}
+                        title={title}
+                      >
+                        <Icon className="w-3.5 h-3.5" />
+                        <span className="text-[8px] font-semibold truncate max-w-full px-1">{label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
+
+              {inspectionOpen && isCollapsed && (
+                <div className="grid grid-cols-1 gap-1 mt-1.5">
+                  {inspectionItems.map(({ label, icon: Icon, section, title }) => (
+                    <button
+                      key={label}
+                      onClick={() => navigateInspection(section, label === 'Trace' ? 'inspector' : label === 'CLI' ? 'cli' : 'dashboard')}
+                      className={`w-10 h-9 mx-auto rounded-lg border flex items-center justify-center transition-all cursor-pointer ${isDark ? 'bg-white/[0.025] border-white/10 text-slate-400 hover:text-white hover:bg-white/10' : 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}
+                      title={title}
+                    ><Icon className="w-3.5 h-3.5" /></button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {!isCollapsed && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm" style={{ backgroundColor: 'var(--jarvis-surface)', borderColor: 'var(--jarvis-border)', color: 'var(--jarvis-text)' }}>
+              <Search size={13} style={{ color: 'var(--jarvis-text-muted)' }} className="shrink-0" />
+              <input type="text" placeholder="Search chats..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full bg-transparent outline-none text-sm" style={{ color: 'var(--jarvis-text)' }} />
+              {searchQuery && <button onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-slate-200 cursor-pointer"><X className="w-3 h-3" /></button>}
             </div>
           )}
         </div>
 
-        {/* Scrollable Chat Threads List */}
         {isCollapsed ? (
-          /* Slim Rail View: Icon-only list of active & recent chats */
           <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
             {sessions.slice(0, 8).map(session => {
               const isActive = session.sessionId === activeSessionId;
               return (
-                <button
-                  key={session.sessionId}
-                  onClick={() => onSelectSession(session.sessionId)}
-                  className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition cursor-pointer relative group ${
-                    isActive
-                      ? 'bg-brand-600 text-white shadow-xs'
-                      : isDark
-                      ? 'hover:bg-white/10 text-slate-400 hover:text-white'
-                      : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
-                  }`}
-                  title={session.title}
-                >
+                <button key={session.sessionId} onClick={() => onSelectSession(session.sessionId)} className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition cursor-pointer relative group ${isActive ? 'bg-brand-600 text-white shadow-xs' : isDark ? 'hover:bg-white/10 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'}`} title={session.title}>
                   <MessageSquare className="w-4 h-4" />
-                  {session.pinned && (
-                    <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-brand-400" />
-                  )}
+                  {session.pinned && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-brand-400" />}
                 </button>
               );
             })}
           </div>
         ) : (
-          /* Full Expanded View: Grouped with Collapsible Sections */
           <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-3 font-sans">
-            {/* Pinned Section */}
             {pinnedSessions.length > 0 && (
               <div className="space-y-1">
-                <button
-                  onClick={() => setPinnedOpen(!pinnedOpen)}
-                  className="w-full px-2 py-1 flex items-center justify-between text-xs font-medium transition-colors cursor-pointer select-none" style={{ color: 'var(--jarvis-text-muted)' }}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Pin className="w-2.5 h-2.5 text-brand-500" />
-                    <span>Pinned</span>
-                  </span>
+                <button onClick={() => setPinnedOpen(!pinnedOpen)} className="w-full px-2 py-1 flex items-center justify-between text-xs font-medium transition-colors cursor-pointer select-none" style={{ color: 'var(--jarvis-text-muted)' }}>
+                  <span className="flex items-center gap-1.5"><Pin className="w-2.5 h-2.5 text-brand-500" /><span>Pinned</span></span>
                   {pinnedOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                 </button>
                 {pinnedOpen && pinnedSessions.map(renderSessionItem)}
               </div>
             )}
-
-            {/* Recent Section (Last 7 Days) */}
             <div className="space-y-1">
-              <button
-                onClick={() => setRecentOpen(!recentOpen)}
-                className="w-full px-2 py-1 flex items-center justify-between text-xs font-medium transition-colors cursor-pointer select-none" style={{ color: 'var(--jarvis-text-muted)' }}
-              >
-                <span className="flex items-center gap-1.5">
-                  <Clock className="w-2.5 h-2.5 text-brand-500" />
-                  <span>Recent (Last 7 Days)</span>
-                </span>
+              <button onClick={() => setRecentOpen(!recentOpen)} className="w-full px-2 py-1 flex items-center justify-between text-xs font-medium transition-colors cursor-pointer select-none" style={{ color: 'var(--jarvis-text-muted)' }}>
+                <span className="flex items-center gap-1.5"><Clock className="w-2.5 h-2.5 text-brand-500" /><span>Recent (Last 7 Days)</span></span>
                 {recentOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
               </button>
-              {recentOpen &&
-                (recentSessions.length > 0 ? (
-                  recentSessions.map(renderSessionItem)
-                ) : (
-                  <div className="px-3 py-2 text-xs text-slate-400 italic">No recent chats</div>
-                ))}
+              {recentOpen && (recentSessions.length > 0 ? recentSessions.map(renderSessionItem) : <div className="px-3 py-2 text-xs text-slate-400 italic">No recent chats</div>)}
             </div>
-
-            {/* Older Section */}
             {olderSessions.length > 0 && (
               <div className="space-y-1">
-                <button
-                  onClick={() => setOlderOpen(!olderOpen)}
-                  className="w-full px-2 py-1 flex items-center justify-between text-xs font-medium transition-colors cursor-pointer select-none" style={{ color: 'var(--jarvis-text-muted)' }}
-                >
+                <button onClick={() => setOlderOpen(!olderOpen)} className="w-full px-2 py-1 flex items-center justify-between text-xs font-medium transition-colors cursor-pointer select-none" style={{ color: 'var(--jarvis-text-muted)' }}>
                   <span>Older Conversations</span>
                   {olderOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                 </button>
                 {olderOpen && olderSessions.map(renderSessionItem)}
               </div>
             )}
-
-            {filteredSessions.length === 0 && (
-              <div className="text-center py-8 text-xs text-slate-400">No conversations found</div>
-            )}
+            {filteredSessions.length === 0 && <div className="text-center py-8 text-xs text-slate-400">No conversations found</div>}
           </div>
         )}
 
-        {/* Sidebar Footer: Unified Profile, Settings, and Theme Hub */}
         <div className="p-2.5 border-t border-slate-200 dark:border-white/10 space-y-2 select-none">
           {isCollapsed ? (
-            /* Slim Rail Footer Icons */
             <div className="flex flex-col items-center gap-2">
-              <button
-                onClick={onOpenProfileSettings}
-                className="w-9 h-9 rounded-xl bg-brand-500/20 text-brand-400 border border-brand-400/30 flex items-center justify-center font-bold text-xs hover:scale-105 transition-transform cursor-pointer"
-                title="Profile & Settings"
-              >
-                {isAdmin ? 'AD' : <User className="w-4 h-4" />}
-              </button>
-              {onOpenSettings && (
-                <button
-                  onClick={onOpenSettings}
-                  className="w-9 h-9 rounded-xl hover:bg-slate-100 dark:hover:bg-white/10 text-slate-500 dark:text-slate-400 hover:text-brand-500 transition flex items-center justify-center cursor-pointer"
-                  title="Settings"
-                >
-                  <Settings className="w-4 h-4" />
-                </button>
-              )}
+              <button onClick={onOpenProfileSettings} className="w-9 h-9 rounded-xl bg-brand-500/20 text-brand-400 border border-brand-400/30 flex items-center justify-center font-bold text-xs hover:scale-105 transition-transform cursor-pointer" title="Profile & Settings">{isAdmin ? 'AD' : <User className="w-4 h-4" />}</button>
+              {onOpenSettings && <button onClick={onOpenSettings} className="w-9 h-9 rounded-xl hover:bg-slate-100 dark:hover:bg-white/10 text-slate-500 dark:text-slate-400 hover:text-brand-500 transition flex items-center justify-center cursor-pointer" title="Settings"><Settings className="w-4 h-4" /></button>}
             </div>
           ) : (
-            /* Full Expanded Footer: Unified Profile & Settings Card */
-            <div
-              className={`p-2 rounded-xl border flex items-center justify-between gap-1.5 transition ${
-                isDark
-                  ? 'bg-white/[0.02] border-white/10 text-white'
-                  : 'bg-slate-50 border-slate-200 text-slate-900 shadow-2xs'
-              }`}
-            >
-              {/* Profile click trigger */}
-              <div
-                onClick={onOpenProfileSettings}
-                className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer group p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition"
-                title="Touch profile to open profile & account settings"
-              >
+            <div className={`p-2 rounded-xl border flex items-center justify-between gap-1.5 transition ${isDark ? 'bg-white/[0.02] border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900 shadow-2xs'}`}>
+              <div onClick={onOpenProfileSettings} className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer group p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition" title="Touch profile to open profile & account settings">
                 <div className="relative shrink-0">
-                  <div
-                    className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs ${
-                      isAdmin
-                        ? 'bg-brand-500/20 text-brand-600 dark:text-brand-300 border border-brand-400'
-                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-white/10'
-                    }`}
-                  >
-                    {isAdmin ? 'AD' : <User className="w-3.5 h-3.5" />}
-                  </div>
-                  <span
-                    className={`absolute bottom-0 right-0 w-2 h-2 rounded-full border border-white dark:border-[#080b14] ${
-                      isAdmin ? 'bg-emerald-500' : 'bg-amber-500'
-                    }`}
-                  />
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs ${isAdmin ? 'bg-brand-500/20 text-brand-600 dark:text-brand-300 border border-brand-400' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-white/10'}`}>{isAdmin ? 'AD' : <User className="w-3.5 h-3.5" />}</div>
+                  <span className={`absolute bottom-0 right-0 w-2 h-2 rounded-full border border-white dark:border-[#080b14] ${isAdmin ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                 </div>
-
                 <div className="min-w-0 flex-1 text-left">
-                  <div className="flex items-center gap-1.5 leading-tight">
-                    <span className="font-semibold text-xs truncate group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">
-                      {isAdmin ? 'Admin' : 'Guest User'}
-                    </span>
-                    <span
-                      className={`text-xs px-1 py-0.2 rounded font-mono font-bold uppercase border ${
-                        isAdmin
-                          ? 'bg-brand-500/15 text-brand-700 dark:text-brand-400 border-brand-500/30'
-                          : 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30'
-                      }`}
-                    >
-                      {isAdmin ? 'OPERATOR' : 'GUEST'}
-                    </span>
-                  </div>
-                  <span className="text-xs text-slate-500 dark:text-slate-400 font-mono block truncate">
-                    {isAdmin ? 'Profile & Account' : 'Tap for settings'}
-                  </span>
+                  <div className="flex items-center gap-1.5 leading-tight"><span className="font-semibold text-xs truncate group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">{isAdmin ? 'Admin' : 'Guest User'}</span><span className={`text-xs px-1 py-0.2 rounded font-mono font-bold uppercase border ${isAdmin ? 'bg-brand-500/15 text-brand-700 dark:text-brand-400 border-brand-500/30' : 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30'}`}>{isAdmin ? 'OPERATOR' : 'GUEST'}</span></div>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-mono block truncate">{isAdmin ? 'Profile & Account' : 'Tap for settings'}</span>
                 </div>
               </div>
-
-              {/* Action Buttons: Login (if Guest) & System Settings */}
               <div className="flex items-center gap-1 shrink-0">
-                {!isAdmin && onOpenAuth && (
-                  <button
-                    type="button"
-                    onClick={e => {
-                      e.stopPropagation();
-                      onOpenAuth();
-                    }}
-                    className="px-2 py-1 rounded-lg bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs flex items-center gap-1 transition cursor-pointer shadow-xs"
-                    title="Sign in to JARVIS"
-                  >
-                    <LogIn className="w-3 h-3" />
-                    <span>Login</span>
-                  </button>
-                )}
-
-                {onOpenSettings && (
-                  <button
-                    type="button"
-                    onClick={e => {
-                      e.stopPropagation();
-                      onOpenSettings();
-                    }}
-                    className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 transition cursor-pointer"
-                    title="System Settings"
-                  >
-                    <Settings className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                {!isAdmin && onOpenAuth && <button type="button" onClick={e => { e.stopPropagation(); onOpenAuth(); }} className="px-2 py-1 rounded-lg bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs flex items-center gap-1 transition cursor-pointer shadow-xs" title="Sign in to JARVIS"><LogIn className="w-3 h-3" /><span>Login</span></button>}
+                {onOpenSettings && <button type="button" onClick={e => { e.stopPropagation(); onOpenSettings(); }} className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-white/10 text-slate-500 dark:text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 transition cursor-pointer" title="System Settings"><Settings className="w-3.5 h-3.5" /></button>}
               </div>
             </div>
           )}
