@@ -196,7 +196,15 @@ class JarvisApiClient {
   private baseUrl = typeof window !== 'undefined'
     ? (localStorage.getItem('jarvis_backend_api_url') || JarvisApiClient.computeDefaultBackendUrl())
     : '';
-  private history: ActivityHistoryItem[] = [...INITIAL_ACTIVITY_HISTORY];
+  // Starts empty -- NOT seeded with INITIAL_ACTIVITY_HISTORY's fake
+  // sample turns. Those looked enough like real chat history (plausible
+  // queries, TRN-#### ids) that they were indistinguishable from real
+  // data whenever the backend fetch below failed or genuinely had
+  // nothing yet -- exactly what UK flagged ("Recent Activity hardcoded
+  // hai, actual data nahi dikha raha"). An honestly-empty table (see
+  // DashboardScreen.tsx's "No activity history available.") is correct
+  // here; a plausible-looking fake one is not.
+  private history: ActivityHistoryItem[] = [];
 
   private static computeDefaultBackendUrl(): string {
     if (typeof window === 'undefined') return '';
@@ -486,15 +494,41 @@ class JarvisApiClient {
   }
 
   // Activity History & Per-turn Trace
+  // Backed by GET /api/trace/history + GET /api/trace/{turnId} (see
+  // backend/routes_cognitive.py) -- the REAL per-turn brain.last_turn_trace
+  // for every chat reply that has one, read straight out of chat_messages.
+  // this.history is kept as a local cache (used by getHistory()/sendChat()'s
+  // synchronous callers, and as an offline fallback) but is now populated
+  // from the backend instead of only ever containing the hardcoded sample
+  // turns above.
   getHistory(): ActivityHistoryItem[] {
     return this.history;
   }
 
-  async getActivityHistory(): Promise<ActivityHistoryItem[]> {
+  async getActivityHistory(limit = 50): Promise<ActivityHistoryItem[]> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/trace/history?limit=${limit}`);
+      if (res.ok) {
+        const items: ActivityHistoryItem[] = await res.json();
+        if (Array.isArray(items) && items.length > 0) {
+          this.history = items;
+          return items;
+        }
+      }
+    } catch {}
+    // Backend unreachable or no real turns recorded yet -- fall back to
+    // the local cache (sample turns on first load, or whatever sendChat()
+    // has accumulated this session).
     return this.history;
   }
 
   async getTurnTrace(turnId: string): Promise<TurnTrace> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/trace/${encodeURIComponent(turnId)}`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {}
     const item = this.history.find(h => h.turnId === turnId);
     if (item) return item.trace;
     return SAMPLE_TURN_TRACE;
@@ -519,8 +553,16 @@ class JarvisApiClient {
       if (res.ok) {
         const data = await res.json();
         const duration = (Date.now() - startTime) / 1000;
+        const realTrace: TurnTrace | undefined = data.jarvisMessage?.trace;
 
-        const trace: TurnTrace = {
+        // Use the REAL trace the backend returns (brain.last_turn_trace
+        // for this exact turn -- see backend/trace_utils.py) whenever the
+        // pipeline actually produced one. Only synthesize a placeholder
+        // when the organism genuinely didn't attach a trace this turn
+        // (e.g. brain not wired yet), and even then it's built from real
+        // values (the actual reply text and round-trip duration), not a
+        // copy of the fixed sample trace.
+        const trace: TurnTrace = realTrace ?? {
           ...SAMPLE_TURN_TRACE,
           turn_id: turnId,
           query: message,
@@ -534,26 +576,21 @@ class JarvisApiClient {
             status: 'completed',
             response: data.jarvisMessage?.text || 'Understood, sir.',
           },
-          timings: {
-            total: Math.max(0.4, duration),
-            perception: 0.05,
-            indexing: 0.08,
-            routing: 0.04,
-            execution: Math.max(0.2, duration - 0.2),
-            learning: 0.03,
-          },
+          timings: { total: Math.max(0.4, duration) },
         };
 
-        // Prepend to history
+        // Prepend to the local history cache so the Trace Inspector
+        // reflects this turn immediately, without waiting for the next
+        // getActivityHistory() poll.
         this.history.unshift({
-          turnId,
+          turnId: data.jarvisMessage?.id ? `trn-${data.jarvisMessage.id}` : turnId,
           startTime,
           endTime: Date.now(),
-          durationSeconds: duration,
+          durationSeconds: trace.timings?.total ?? duration,
           stagePath: ['IDLE', 'PERCEIVING', 'INDEXING', 'EXECUTING', 'IDLE'],
           query: message,
-          responsePreview: trace.response_preview,
-          success: true,
+          responsePreview: trace.response_preview || data.jarvisMessage?.text || '',
+          success: trace.pipeline_success ?? true,
           trace,
         });
 

@@ -44,6 +44,28 @@ function display(v: any) {
   try { return JSON.stringify(v); } catch { return String(v); }
 }
 
+// Real perception.entities (see core/cognition/semantic_understanding/
+// bridge_to_cognition.py's understand()) are dicts -- {text, type,
+// entity_id} -- never plain strings. Rendering one directly as a React
+// child throws "Objects are not valid as a React child", which is what
+// was blanking the whole trace panel the moment any turn extracted at
+// least one entity (i.e. almost every turn).
+function entityLabel(e: any) {
+  if (typeof e === 'string') return e;
+  if (e && typeof e === 'object') return e.text ?? display(e);
+  return display(e);
+}
+
+// Real semantic_understanding.provenance (see blueprint_brain.py's
+// _perceive()) is an object -- {source, degraded?, reason?} -- not a
+// bare string. Same crash risk as entities above if rendered directly.
+function provenanceLabel(p: any) {
+  if (p == null) return 'native';
+  if (typeof p === 'string') return p;
+  if (typeof p === 'object') return p.source ?? display(p);
+  return display(p);
+}
+
 function formatIntent(v: any) {
   if (v == null || v === '') return 'question';
   if (typeof v === 'string') return v;
@@ -111,17 +133,18 @@ export function TraceTreeViewer({ trace, theme, initiallyExpanded = true }: Trac
   const maxTokens = trace.llm_budget?.max_output_tokens ?? 0;
   const entities = trace.perception?.entities || [];
 
-  const semantic: any = (trace as any).semantic_understanding || (trace as any).semantic || {};
+  const semantic: any = trace.perception?.semantic_understanding || (trace as any).semantic_understanding || (trace as any).semantic || {};
+  const relationsCount: number = Array.isArray(semantic.relations) ? semantic.relations.length : (semantic.relations_extracted ?? 0);
   const indexing: any = (trace as any).indexing || {};
   const cognition: any = (trace as any).cognition || (trace as any).brain_cognition || {};
-  const learning: any = (trace as any).learning || {};
+  const learning: any = (trace as any).learning_queue || (trace as any).learning || {};
 
   const schemasData = useMemo(() => ({
     perception: {
       type: 'PerceptionContract',
       source: trace.source,
-      normalized_input: trace.perception?.normalized_input,
-      intent: trace.perception?.basic_intent,
+      normalized_input: trace.perception?.normalized_text || trace.perception?.normalized_input,
+      intent: trace.perception?.intent || trace.perception?.basic_intent,
       confidence: trace.perception?.confidence,
       language: trace.perception?.language,
       entities: entities,
@@ -134,11 +157,11 @@ export function TraceTreeViewer({ trace, theme, initiallyExpanded = true }: Trac
     },
     semantic: {
       type: 'SemanticUnderstandingContract',
-      provenance: semantic.provenance ?? 'native',
+      provenance: provenanceLabel(semantic.provenance),
       confidence: semantic.confidence,
-      relations_extracted: semantic.relations_extracted ?? 0,
+      relations_extracted: relationsCount,
       entities: semantic.entities ?? entities,
-      reason: semantic.reason,
+      reason: semantic.provenance?.reason || semantic.reason,
     },
     cognition: {
       type: 'CognitionContract',
@@ -225,8 +248,8 @@ export function TraceTreeViewer({ trace, theme, initiallyExpanded = true }: Trac
     <Schema data={(schemasData as any)[key]} color={stageMeta[key].color} copied={copied === key} onCopy={() => copy(key)} />
   ) : null;
 
-  const semanticReason = semantic.reason || 'No relation extracted, nothing will be stored this turn';
-  const learningStored = learning.knowledge_stored ?? (entities.length > 0 && !!semantic.relations_extracted);
+  const semanticReason = semantic.provenance?.reason || semantic.reason || 'No relation extracted, nothing will be stored this turn';
+  const learningStored = learning.knowledge_stored ?? (relationsCount > 0);
 
   return (
     <div className={`trace-root ${isDark ? 'trace-dark' : 'trace-light'}`}>
@@ -246,7 +269,7 @@ export function TraceTreeViewer({ trace, theme, initiallyExpanded = true }: Trac
         </div>
         <div className="trace-overview">
           <Metric label="SOURCE" value={trace.source || 'safe_fallback'} color="#4f7ed8" />
-          <Metric label="INTENT" value={display(formatIntent(trace.perception?.basic_intent))} color="#7c58d6" />
+          <Metric label="INTENT" value={display(formatIntent(trace.perception?.intent || trace.perception?.basic_intent))} color="#7c58d6" />
           <Metric label="CONFIDENCE" value={pct(trace.perception?.confidence)} color="#0ca678" />
           <Metric label="LLM" value={trace.cognitive_route?.mode || 'llm'} color="#8b5cf6" />
           <Metric label="BUDGET" value={`${calls}/${maxCalls}`} color="#2aa7a0" />
@@ -259,15 +282,15 @@ export function TraceTreeViewer({ trace, theme, initiallyExpanded = true }: Trac
 
         {stage('perception',
           <div className="trace-grid">
-            <Field label="Normalized input" value={trace.perception?.normalized_input || trace.query} />
-            <Field label="Intent" value={display(formatIntent(trace.perception?.basic_intent))} mono accent="#8b5cf6" />
+            <Field label="Normalized input" value={trace.perception?.normalized_text || trace.perception?.normalized_input || trace.query} />
+            <Field label="Intent" value={display(formatIntent(trace.perception?.intent || trace.perception?.basic_intent))} mono accent="#8b5cf6" />
             <Field label="Language" value={trace.perception?.language || 'unknown'} accent="#5b8def" />
             <Field label="Source" value={trace.source || 'safe_fallback'} mono />
             <Field label="Confidence" value={pct(trace.perception?.confidence)} accent="#22c55e" />
             <Field label="Safety / metadata" value={display(trace.perception?.metadata || 'passed')} />
             <div className="trace-wide">
               <div className="trace-subhead">ENTITIES</div>
-              <div className="trace-chips">{entities.length ? entities.map((e, i) => <span key={i}>{e}</span>) : <em>0 entities</em>}</div>
+              <div className="trace-chips">{entities.length ? entities.map((e, i) => <span key={i}>{entityLabel(e)}</span>) : <em>0 entities</em>}</div>
             </div>
           </div>,
           <span>{trace.source || 'Safe fallback'} · {pct(trace.perception?.confidence)} confidence</span>,
@@ -288,16 +311,16 @@ export function TraceTreeViewer({ trace, theme, initiallyExpanded = true }: Trac
 
         {stage('semantic',
           <div className="trace-grid">
-            <Field label="Provenance" value={semantic.provenance ?? 'native'} mono accent="#06b6d4" />
+            <Field label="Provenance" value={provenanceLabel(semantic.provenance)} mono accent="#06b6d4" />
             <Field label="Confidence" value={pct(semantic.confidence ?? trace.perception?.confidence)} accent="#22c55e" />
-            <Field label="Relations extracted" value={semantic.relations_extracted ?? 0} mono />
+            <Field label="Relations extracted" value={relationsCount} mono />
             <Field label="Entities" value={semantic.entities?.length ?? entities.length} mono />
             <div className="trace-wide trace-callout">
               <ShieldCheck size={16} />
-              <div><strong>{semantic.relations_extracted ? 'Relations available' : 'No relation extracted'}</strong><p>{semanticReason}</p></div>
+              <div><strong>{relationsCount ? 'Relations available' : 'No relation extracted'}</strong><p>{semanticReason}</p></div>
             </div>
           </div>,
-          <span>{semantic.provenance || 'Native'} provenance · {semantic.relations_extracted ?? 0} relations</span>,
+          <span>{provenanceLabel(semantic.provenance)} provenance · {relationsCount} relations</span>,
           schemaExtra('semantic')
         )}
 
@@ -350,7 +373,7 @@ export function TraceTreeViewer({ trace, theme, initiallyExpanded = true }: Trac
 
         {stage('learning',
           <div className="trace-grid">
-            <Field label="Queue" value={`${learning.queued ?? '—'} queued · ${learning.pending ?? 0} pending`} mono />
+            <Field label="Queue" value={`pending=${learning.pending ?? 0} processed=${learning.processed ?? 0}`} mono />
             <Field label="Processed" value={learning.processed ?? '—'} mono accent="#22c55e" />
             <Field label="Failed" value={learning.failed ?? 0} mono accent={learning.failed ? '#ef4444' : '#22c55e'} />
             <Field label="Knowledge stored" value={learningStored ? 'YES' : 'NO'} accent={learningStored ? '#22c55e' : '#f59e0b'} />

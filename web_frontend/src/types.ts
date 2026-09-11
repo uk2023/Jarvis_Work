@@ -76,17 +76,43 @@ export interface TurnTrace {
   query: string;
   response_preview: string;
   perception: {
-    normalized_input: string;
+    // Real field names from core/orchestration/blueprint_brain.py's
+    // _perceive(). normalized_input/basic_intent are kept as optional
+    // legacy aliases only -- the real pipeline writes normalized_text
+    // and intent.
+    normalized_text?: string;
+    normalized_input?: string;
     language: string;
     confidence: number;
-    basic_intent: Record<string, any>;
-    entities: string[];
-    metadata: {
+    intent?: Record<string, any>;
+    basic_intent?: Record<string, any>;
+    // Real entities are objects ({text, type, entity_id}), not plain
+    // strings -- see core/cognition/semantic_understanding/
+    // bridge_to_cognition.py's understand(). Never render one directly
+    // as a React child; use entityLabel()/display() first.
+    entities: Array<string | { text: string; type?: string; entity_id?: string }>;
+    metadata?: {
       source: string;
       uncertainty: number;
       goal: string | null;
       reason: string;
     };
+    // The full real semantic_understanding contract output lives here,
+    // nested under perception -- NOT at the top level of TurnTrace.
+    semantic_understanding?: {
+      normalized_text: string;
+      intent: Record<string, any>;
+      entities: any[];
+      relations: any[];
+      events: any[];
+      references: any[];
+      confidence: number;
+      // Object, not a string -- {source, degraded?, reason?}.
+      provenance: { source: string; degraded?: boolean; reason?: string } | string;
+      inferences: any[];
+      unknowns: any[];
+    };
+    semantic_evidence?: Record<string, any>;
   };
   cognitive_route: {
     mode: string;
@@ -122,6 +148,11 @@ export interface TurnTrace {
     reserved_output_tokens: number;
     max_output_tokens: number;
   };
+  // Real supplementary data attached server-side by backend/trace_utils.py's
+  // real_turn_trace() (from brain.last_context / brain.status()) -- the raw
+  // trace object itself never carries these.
+  indexing?: { memory: number; knowledge: number; graph: number };
+  learning_queue?: { alive: boolean; pending: number; processed: number; failed: number; dropped: number; active: boolean };
 }
 
 export interface BackendStatusResponse {
@@ -169,8 +200,27 @@ export interface SystemResourcesData {
     proposals: number;
     approved: number;
     applied: number;
+    rejected: number;
     last_evolution_at: number;
   };
+}
+
+// Condensed per-turn trace shown inline in a chat bubble (see
+// backend/trace_utils.py's turn_trace_summary()). Every field is
+// sourced from the same real brain.last_turn_trace / brain.last_context
+// the full TurnTrace/TraceTreeViewer uses -- just condensed for a
+// compact widget instead of the full per-stage breakdown.
+export interface TraceSummary {
+  traceId: string;
+  latencySeconds: number;
+  mode: string;
+  status: string;
+  memoryMatches: number;
+  knowledgeMatches: number;
+  graphRelations: number;
+  semanticRelations: Array<{ subject: string; predicate: string; value: any }>;
+  llmAvailable: boolean;
+  pipelineSuccess: boolean;
 }
 
 export interface ActivityHistoryItem {
@@ -195,7 +245,7 @@ export interface ChatMessage {
   dateLabel?: string;
   source: 'web' | 'cli' | 'autonomous';
   trace?: TurnTrace;
-  traceLog?: any;
+  traceLog?: TraceSummary;
   thinkingDurationSeconds?: number;
   thinkingProcess?: string[];
   extractedFact?: {
