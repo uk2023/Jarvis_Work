@@ -12,54 +12,67 @@ const items = [
   { label: 'Virtual CLI', title: 'Virtual CLI (Diagnostic Shell & Terminal)', icon: Terminal },
 ];
 
+function isVisible(el: Element) {
+  const node = el as HTMLElement;
+  const style = window.getComputedStyle(node);
+  const rect = node.getBoundingClientRect();
+  return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+}
+
 export function AdminSidebarNav() {
   const [mount, setMount] = useState<HTMLElement | null>(null);
-  const [adminVisible, setAdminVisible] = useState(false);
+  const [tabActive, setTabActive] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [activeTitle, setActiveTitle] = useState('');
 
   useEffect(() => {
     const sync = () => {
-      const monitorButton = Array.from(document.querySelectorAll('button[title]')).find(
-        button => button.getAttribute('title') === items[0].title,
-      );
-      setAdminVisible(Boolean(monitorButton));
+      const actionButtons = items
+        .map(item => Array.from(document.querySelectorAll('button[title]')).find(b => b.getAttribute('title') === item.title))
+        .filter(Boolean) as Element[];
+      setTabActive(actionButtons.some(isVisible));
     };
     sync();
     const observer = new MutationObserver(sync);
-    observer.observe(document.getElementById('app-root') || document.body, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    observer.observe(document.getElementById('app-root') || document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
+    window.addEventListener('resize', sync);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', sync);
+    };
   }, []);
 
   useEffect(() => {
-    if (!adminVisible) {
+    if (!tabActive) {
       setMount(null);
       return;
     }
     const aside = document.querySelector('aside');
     if (!aside) return;
-    const host = document.createElement('div');
-    host.className = 'jarvis-admin-sidebar-nav-host';
-    const bottom = aside.lastElementChild;
-    if (bottom) aside.insertBefore(host, bottom);
-    else aside.appendChild(host);
-    setMount(host);
 
-    const syncActive = () => {
+    const syncSidebar = () => {
+      setCollapsed(aside.className.includes('md:w-16'));
       const active = Array.from(aside.querySelectorAll('button[title]')).find(button => {
         const title = button.getAttribute('title') || '';
         return items.some(item => item.title === title) && button.className.includes('bg-brand-600');
       });
       setActiveTitle(active?.getAttribute('title') || '');
     };
-    syncActive();
-    const observer = new MutationObserver(syncActive);
+    syncSidebar();
+
+    const host = document.createElement('div');
+    host.className = 'jarvis-admin-sidebar-nav-host';
+    aside.insertBefore(host, aside.firstElementChild);
+    setMount(host);
+
+    const observer = new MutationObserver(syncSidebar);
     observer.observe(aside, { subtree: true, attributes: true, attributeFilter: ['class'] });
     return () => {
       observer.disconnect();
       host.remove();
       setMount(null);
     };
-  }, [adminVisible]);
+  }, [tabActive]);
 
   const activate = (title: string) => {
     const button = Array.from(document.querySelectorAll('button[title]')).find(
@@ -68,7 +81,7 @@ export function AdminSidebarNav() {
     button?.click();
   };
 
-  if (!mount || !adminVisible) return null;
+  if (!mount || !tabActive || collapsed) return null;
 
   return createPortal(
     <div className="jarvis-admin-sidebar-nav" aria-label="JARVIS admin navigation">
