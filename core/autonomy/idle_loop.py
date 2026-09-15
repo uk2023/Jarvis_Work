@@ -77,7 +77,75 @@ class IdleLoop:
         target = self.goal_manager.next_goal()
 
         if target is None:
-            return self._noop("no pending goals")
+            return self._background_maintenance("no pending goals")
+
+    def _background_maintenance(self, reason: str) -> Dict[str, Any]:
+        """IDLE MUST NEVER SIT EMPTY (2026-09-13, UK: "idle me kabhi
+        khali nahi baithega JARVIS ab").
+
+        Previously a cycle with no pending goal returned a no-op and the
+        organism did literally nothing until the next user message --
+        which is why the monitor showed zero learning, zero
+        consolidation, zero pattern work for hours at a stretch.
+
+        There is always real maintenance available, so the cycle now
+        works through a fixed backlog in priority order. Each task is
+        cheap, bounded, and independently guarded: one failing task must
+        not stop the rest, because a single bad consolidation should not
+        silently disable all background work (exactly the failure mode
+        that made this look broken).
+
+        Deliberately NO LLM calls here -- idle work runs on the organism's
+        own machinery, so a background cycle can never quietly eat the
+        token budget UK is saving for conversation.
+        """
+        performed: List[Dict[str, Any]] = []
+
+        def _try(label: str, fn) -> None:
+            try:
+                outcome = fn()
+                performed.append({"task": label, "ok": True, "result": outcome})
+            except Exception as exc:
+                performed.append({"task": label, "ok": False, "error": str(exc)})
+
+        brain = getattr(self, "brain", None)
+        memory = getattr(brain, "memory", None) if brain is not None else None
+
+        # 1. Episodic -> semantic consolidation. Now that chat turns are
+        #    actually persisted as episodes, this has real material.
+        consolidator = getattr(brain, "consolidator", None) if brain is not None else None
+        if consolidator is not None and hasattr(consolidator, "consolidate"):
+            _try("memory_consolidation", lambda: consolidator.consolidate(limit=50))
+
+        # 2. Re-verify low-confidence knowledge gaps found this cycle.
+        _try("knowledge_gap_scan", lambda: {"gaps": len(self._find_knowledge_gaps())})
+
+        # 3. Learning-pattern review (time-gated internally).
+        _try("learning_pattern_review", self._review_learning_patterns)
+
+        # 4. Procedural memory: promote repeated habits.
+        procedural = getattr(brain, "procedural_memory", None) if brain is not None else None
+        if procedural is not None and hasattr(procedural, "promote_candidates"):
+            _try("procedural_promotion", procedural.promote_candidates)
+
+        # 5. Pattern synthesis: propose extraction patterns from misses.
+        synthesis = getattr(brain, "pattern_synthesis", None) if brain is not None else None
+        if synthesis is not None and hasattr(synthesis, "scan"):
+            _try("pattern_synthesis", synthesis.scan)
+
+        # 6. Memory decay: let unused personal facts fade, like real memory.
+        if memory is not None and hasattr(memory, "decay_unused"):
+            _try("memory_decay", memory.decay_unused)
+
+        result = {
+            "action": "IDLE_MAINTENANCE",
+            "reason": reason,
+            "tasks_run": len(performed),
+            "tasks_succeeded": sum(1 for p in performed if p["ok"]),
+            "performed": performed,
+        }
+        self._publish("IDLE_MAINTENANCE_COMPLETE", result)
+        return result
 
         self.goal_manager.update_status(target["id"], "active")
 
@@ -140,10 +208,31 @@ class IdleLoop:
     def _run_task(self, task: Dict[str, Any]) -> None:
         if self.executor is None:
             return
+<<<<<<< HEAD
 
+=======
+        is_instruction = task.get("action") == "standing_instruction_fire"
+>>>>>>> 90fbd2a (Save local project changes before branch checkout)
         try:
             self.executor(task)
+            # SILENT-FIRING FIX (2026-09-13, UK: "standing instruction
+            # silently hit ho jata hai, UI ya trace ya kahin bhi iska
+            # record nahi aata"). A scheduled action that runs with no
+            # trace is indistinguishable from one that never ran, so
+            # there was no way to tell a working scheduler from a dead
+            # one. Every firing is now recorded with a timestamp and
+            # outcome, readable via Brain.get_instruction_firings() and
+            # therefore surfaceable in CLI/monitor/UI.
+            if is_instruction:
+                from ..orchestration.companion_tools import record_instruction_firing
+                record_instruction_firing(
+                    instruction_id=str(task.get("knowledge_id") or ""),
+                    instruction_text=str(task.get("action_text") or ""),
+                    trigger_type="scheduled",
+                    outcome="fired",
+                )
         except Exception as exc:
+<<<<<<< HEAD
             print(f"[IdleLoop] Scheduled task failed: {exc}")
 
     def _log_episode(
@@ -171,6 +260,21 @@ class IdleLoop:
             )
         except Exception as exc:
             print(f"[IdleLoop] Failed to log episode: {exc}")
+=======
+            if is_instruction:
+                try:
+                    from ..orchestration.companion_tools import record_instruction_firing
+                    record_instruction_firing(
+                        instruction_id=str(task.get("knowledge_id") or ""),
+                        instruction_text=str(task.get("action_text") or ""),
+                        trigger_type="scheduled",
+                        outcome="failed",
+                        detail=str(exc),
+                    )
+                except Exception:
+                    pass
+            self._publish("IDLE_SCHEDULED_TASK_FAILED", {"task": task, "error": str(exc)})
+>>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
     def _noop(self, reason: str) -> Dict[str, Any]:
         result = {"action": "NO_OP", "reason": reason}

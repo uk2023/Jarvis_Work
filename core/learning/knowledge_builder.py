@@ -410,6 +410,28 @@ class KnowledgeBuilder:
         # Write into semantic memory
         # ---------------------------------------------------------
 
+        # Bug 15 fix (2026-09-11 trace-log audit): a malformed
+        # extraction ("user.paas=nahin" -- a fragment of "paas nahi"/
+        # "don't have", mis-parsed into a fake subject.predicate=value
+        # triple) was reaching permanent storage with nothing checking
+        # whether what got extracted is actually a coherent fact.
+        # This is the ONE chokepoint every candidate passes through
+        # before persisting (see the docstring above), so it's the
+        # correct place for a lightweight sanity gate -- deliberately
+        # conservative (only rejects clear fragments/stopwords-as-
+        # values, never guesses at "is this a REAL fact" beyond that)
+        # so it doesn't accidentally block legitimate short facts.
+        _JUNK_TOKENS = {
+            "nahi", "nahin", "haan", "han", "hai", "hain", "tha", "thi", "the",
+            "ka", "ki", "ke", "ko", "se", "me", "mein", "bhi", "hi", "to", "toh", "na",
+        }
+        predicate_str = str(knowledge.get("predicate", "")).strip().lower()
+        value_str = str(knowledge.get("value", "")).strip().lower()
+        if predicate_str in _JUNK_TOKENS or value_str in _JUNK_TOKENS or len(predicate_str) < 2 or len(value_str) < 1:
+            knowledge["status"] = "REJECTED_MALFORMED"
+            knowledge["rejection_reason"] = f"predicate/value looks like a sentence fragment, not a fact: predicate={predicate_str!r} value={value_str!r}"
+            return knowledge
+
         semantic_knowledge = (
             self.memory.remember_knowledge(
                 subject=knowledge[

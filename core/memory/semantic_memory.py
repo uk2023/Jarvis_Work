@@ -12,6 +12,9 @@ from typing import Any, Dict, List, Optional, Union
 import faiss
 import networkx as nx
 import numpy as np
+from ..runtime.memory_limits import apply_process_limits, low_memory_session_options, memory_guard
+apply_process_limits()
+
 import onnxruntime as ort
 from tokenizers import Tokenizer
 
@@ -33,9 +36,26 @@ class FastONNXEmbedder:
 
         # Fallback if files don't exist yet
         if not os.path.exists(model_path) or not os.path.exists(tokenizer_path):
+<<<<<<< HEAD
             print(f"[ONNXEmbedder] Warning: {model_path} or {tokenizer_path} not found!")
 
         self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+=======
+            log_event("onnx_embedder", f"{model_path} or {tokenizer_path} not found!", level="warning")
+        # THE CRASH (fixed 2026-09-14). Thread count was capped here,
+        # but the CPU memory arena was still ON and optimisation was set
+        # to ORT_ENABLE_ALL, which builds a second, fully-optimised copy
+        # of the graph in memory at load time. Combined with
+        # onnx_embedder.py's completely unconstrained session (see that
+        # file), these two sessions were the ~1.7GB spike in UK's
+        # resource samples that got the process killed with 789MB free.
+        session_options = low_memory_session_options(ort)
+        self.session = ort.InferenceSession(
+            model_path,
+            sess_options=session_options,
+            providers=["CPUExecutionProvider"],
+        )
+>>>>>>> 90fbd2a (Save local project changes before branch checkout)
         self.tokenizer = Tokenizer.from_file(tokenizer_path)
         self.tokenizer.enable_padding(length=128, pad_id=0, pad_token="[PAD]")
         self.tokenizer.enable_truncation(max_length=128)

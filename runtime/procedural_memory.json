@@ -1,0 +1,24 @@
+{
+  "hello": {
+    "action": "Hello, you.",
+    "kind": "response_template",
+    "metadata": {
+      "intent": "greeting",
+      "occurrences_at_approval": 3,
+      "source_proposal": "1bb95f08"
+    },
+    "learned_at": 1789303258.01144,
+    "hits": 0
+  },
+  "mai kaun hu?": {
+    "action": "Aap you (aapka poora naam UJJWAL bhi maine yaad rakha hai).",
+    "kind": "response_template",
+    "metadata": {
+      "intent": "identity",
+      "occurrences_at_approval": 3,
+      "source_proposal": "6be6e6cf"
+    },
+    "learned_at": 1789356586.5468838,
+    "hits": 0
+  }
+}

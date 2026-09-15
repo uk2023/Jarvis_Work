@@ -169,7 +169,53 @@ class GroqEngine:
         self.timeout = timeout
         self._current_index = 0
 
+<<<<<<< HEAD
     def generate(self, system_prompt: str, user_input: str, max_tokens: int = 512, temperature: float = 0.7) -> str:
+=======
+        # THE ACTUAL CRASH CAUSE (found 2026-09-15, from UK's own
+        # spike-capture thread dumps).
+        #
+        # Every call here used the bare module-level `requests.post()`.
+        # That function is a convenience wrapper that opens a brand new
+        # `requests.Session()` -- and therefore a brand new TCP
+        # connection and a FULL TLS handshake, including full
+        # certificate-chain verification against the CA bundle -- for
+        # EVERY SINGLE CALL, then tears it down. No connection pooling,
+        # no keep-alive, nothing reused.
+        #
+        # UK's captured stack traces showed the RSS spike happening
+        # with TWO THREADS simultaneously inside `ssl.do_handshake()` /
+        # a blocking socket read, one from cli.py's direct query path
+        # and one from the web backend's task_loop -- i.e. two
+        # concurrent, fully independent TLS handshakes to the same
+        # host (api.groq.com), each paying the full certificate-
+        # verification cost from scratch, at the same moment. In this
+        # proot/Termux environment that cost is apparently large enough
+        # (roughly matching the observed ~1.7-2GB jumps) that two of
+        # them at once is what was tipping the device into Android's
+        # low-memory killer.
+        #
+        # A persistent Session reuses its underlying connection pool
+        # (urllib3's HTTPAdapter) across calls to the same host: after
+        # the first handshake, subsequent requests reuse the already-
+        # verified TLS connection instead of repeating the full
+        # handshake and certificate verification every time. This is
+        # also simply the correct way to use `requests` for repeated
+        # calls to the same API regardless of the memory angle.
+        self._session = requests.Session()
+
+    def gemini_available(self) -> bool:
+        return bool(self.gemini_api_keys)
+
+    def _post_chat_completion(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Shared multi-key rotation + budget-bounded POST, factored out
+        of generate() so generate_with_tools() (added for M2 tool-
+        calling, 2026-09) can reuse the exact same rotation/timeout
+        discipline instead of duplicating it -- returns the raw
+        response JSON; callers pull out whichever part of `message`
+        they need (plain .content for generate(), the full message
+        dict incl. tool_calls for generate_with_tools())."""
+>>>>>>> 90fbd2a (Save local project changes before branch checkout)
         url = f"{self.base_url}/chat/completions"
         payload = {
             "model": self.model,
@@ -197,9 +243,14 @@ class GroqEngine:
             }
 
             try:
+<<<<<<< HEAD
                 print(f"[JARVIS LLM] Groq Key #{key_num}/{total_keys} | Model: {self.model}")
                 resp = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
 
+=======
+                log_event("llm_bridge", f"groq key #{key_num}/{total_keys} | model: {self.model}{' | tools' if payload.get('tools') else ''}")
+                resp = self._session.post(url, headers=headers, json=payload, timeout=(2.5, per_call_read_timeout))
+>>>>>>> 90fbd2a (Save local project changes before branch checkout)
                 if resp.status_code in (404, 401, 403, 429):
                     print(f"[JARVIS LLM] Key #{key_num} failed HTTP {resp.status_code}: {resp.text.strip()}")
                     print(f"[JARVIS LLM] Switching key...")
@@ -214,7 +265,78 @@ class GroqEngine:
                 print(f"[JARVIS LLM] Key #{key_num} error: {exc}. Trying next key...")
                 last_error = exc
 
+<<<<<<< HEAD
         raise RuntimeError(f"All {total_keys} Groq API keys failed. Last error: {last_error}")
+=======
+    def generate(self, system_prompt: str, user_input: str, max_tokens: int = 512, temperature: float = 0.7,
+                 response_format: Optional[Dict[str, Any]] = None, reasoning_effort: Optional[str] = None) -> str:
+        # THE ACTUAL BUG UK CAUGHT LIVE, from the real terminal/web
+        # logs: "groq API failed: name 'model' is not defined". This
+        # method's signature never had a `model` parameter -- an
+        # unfinished multi-provider (Gemini) edit left a reference to
+        # a name that didn't exist here, so EVERY Groq call raised a
+        # NameError and fell straight to "LLM unavailable". Reverted
+        # to always using self.model (openai/gpt-oss-120b by default,
+        # UK's explicit instruction) -- no per-call override at this
+        # level.
+        payload = {"model": self.model, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_input}], "temperature": temperature, "max_tokens": max_tokens}
+        # ANOTHER ACTUAL BUG (found 2026-09-11 from real monitor.py
+        # output: every single perception extraction showed
+        # "primary:fail -> refined:fail -> safe_fallback"). Verified
+        # against Groq's docs: openai/gpt-oss-120b is a REASONING
+        # model -- asking it to "return ONLY valid JSON" in the system
+        # prompt alone is unreliable, it can emit reasoning/preamble
+        # text around the JSON even at temperature=0. response_format
+        # was never set anywhere in this file, so every JSON-extraction
+        # caller (perception.py, blueprint_brain.py's semantic
+        # fallback) was silently relying on the model just happening
+        # to behave -- which it mostly didn't, hence fallback_active
+        # being true on nearly every turn. json_object mode (not the
+        # stricter json_schema mode -- community-reported regression
+        # risk for gpt-oss-120b as of Oct 2025) guarantees valid JSON
+        # syntax at the API level, no more prompt-only hoping.
+        if response_format:
+            payload["response_format"] = response_format
+        # Bug 13 (latency, 2026-09-11): perception/semantic-fallback
+        # calls are simple classification/extraction, not deep
+        # reasoning -- gpt-oss-120b spends real time on internal
+        # reasoning tokens by default even for these, adding latency
+        # that never shows up in the final answer. Groq's own docs
+        # recommend reasoning_effort="low" for exactly this kind of
+        # call (they say the same for browser_search, already applied
+        # there). This does NOT touch the main response-generation
+        # call, which benefits from full reasoning.
+        if reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
+        data = self._post_chat_completion(payload)
+        return data["choices"][0]["message"]["content"].strip()
+
+    def generate_with_tools(self, messages: list, tools: list, tool_choice: str = "auto",
+                             max_tokens: int = 1024, temperature: float = 0.7,
+                             reasoning_effort: Optional[str] = None) -> Dict[str, Any]:
+        """Tool-calling entry point (M2, 2026-09-11 design discussion:
+        cortex-basal-ganglia inspired -- the model PROPOSES a tool
+        call here; it is Brain/tool_registry.py's job to GATE it
+        (validate the referenced knowledge_id actually exists, etc.)
+        before anything is actually executed -- see
+        core/orchestration/tool_registry.py's run_tool_loop()).
+
+        Unlike generate(), takes the full `messages` array (tool
+        calling is inherently multi-turn within one logical exchange:
+        assistant proposes a call -> a "tool" role message carries the
+        result back -> model produces the final answer) and returns
+        the full assistant message dict (content + tool_calls +
+        executed_tools for built-in tools like browser_search), not
+        just plain text, since the structured parts are exactly what
+        the caller needs to act on.
+        """
+        payload = {"model": self.model, "messages": messages, "temperature": temperature,
+                   "max_tokens": max_tokens, "tools": tools, "tool_choice": tool_choice}
+        if reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
+        data = self._post_chat_completion(payload)
+        return data["choices"][0]["message"]
+>>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
 
 class HybridLLMBridge:
@@ -222,6 +344,10 @@ class HybridLLMBridge:
     CONNECTIVITY_TEST_HOST = "8.8.8.8"
     CONNECTIVITY_TEST_PORT = 53
     CONNECTIVITY_TIMEOUT = 1.5
+    # See _reserve_budget(): tokens that preparatory calls (perception,
+    # semantic fallback) may never consume, so the final reply always
+    # has room to be generated.
+    RESPONSE_TOKEN_FLOOR = 2000
 
     # =============================================================
     # ONE-CALL RESPONSE + MEMORY SIGNAL
@@ -350,7 +476,135 @@ class HybridLLMBridge:
         # let callers (cli.py, the web /api/organism/state endpoint)
         # show the REAL state instead of assuming success.
         self.last_error: Optional[str] = None
+<<<<<<< HEAD
         self.is_ready: bool = False
+=======
+        self.last_backend = "idle"
+        self.is_ready = False
+        self._budget_max_calls = 2
+        self._budget_max_output_tokens = 768
+        self._budget_semantic_tokens = 256
+        self._turn_calls = 0
+        self._turn_reserved_tokens = 0
+        self._turn_active = False
+        # Per-LEVEL sub-budget (on top of the flat total above) -- see
+        # config/cognition.json's max_calls_per_level. This is the
+        # concrete implementation of the explicit budget model: at most
+        # 2 calls at each of three conceptual levels (perception+
+        # understanding, cognition-to-response, post-response reasoning/
+        # evolution), typically 1 each (3 total), worst case 2 each (6
+        # total) -- never a single flat pool where one greedy level
+        # could silently starve the others.
+        self._max_calls_per_level = 2
+        self._level_calls: Dict[str, int] = {}
+        self._level_overrides: Dict[str, int] = {}
+        self._context_budgeter = CognitiveBudgeter(max_context_tokens=n_ctx)
+        self._load_budget_policy()
+        # LOCKED model choices (config/models.json is the single source of
+        # truth -- see that file's "_locked_note"). Falls back to these
+        # Python defaults only if the config file is missing/unreadable,
+        # so a fresh checkout without config/ still boots.
+        self._offline_model_config = {"subdir": "Offline_LLM", "model_filename": model_filename, "n_ctx": n_ctx, "n_threads": n_threads}
+        self._slm_model_config = {"subdir": "SLM", "model_filename": "qwen2.5-0.5b-instruct-q4_k_m.gguf", "n_ctx": 2048, "n_threads": 2}
+        self._load_model_policy()
+
+    def _load_model_policy(self) -> None:
+        config_path = os.path.join(BASE_DIR, "config", "models.json")
+        try:
+            with open(config_path, "r", encoding="utf-8") as handle:
+                models = json.load(handle)
+            if isinstance(models.get("offline_llm"), dict):
+                self._offline_model_config.update({
+                    "subdir": models["offline_llm"].get("subdir", self._offline_model_config["subdir"]),
+                    "model_filename": models["offline_llm"].get("model_filename", self._offline_model_config["model_filename"]),
+                    "n_ctx": int(models["offline_llm"].get("n_ctx", self._offline_model_config["n_ctx"])),
+                    "n_threads": int(models["offline_llm"].get("n_threads", self._offline_model_config["n_threads"])),
+                })
+            if isinstance(models.get("slm"), dict):
+                self._slm_model_config.update({
+                    "subdir": models["slm"].get("subdir", self._slm_model_config["subdir"]),
+                    "model_filename": models["slm"].get("model_filename", self._slm_model_config["model_filename"]),
+                    "n_ctx": int(models["slm"].get("n_ctx", self._slm_model_config["n_ctx"])),
+                    "n_threads": int(models["slm"].get("n_threads", self._slm_model_config["n_threads"])),
+                })
+        except (OSError, ValueError, TypeError, AttributeError, KeyError):
+            pass  # config/models.json missing/malformed -- keep the hardcoded defaults above
+
+    def _load_budget_policy(self) -> None:
+        config_path = os.path.join(BASE_DIR, "config", "cognition.json")
+        try:
+            with open(config_path, "r", encoding="utf-8") as handle:
+                llm = json.load(handle).get("llm", {})
+            self._budget_max_calls = max(1, int(llm.get("max_calls_per_turn", self._budget_max_calls)))
+            self._budget_max_output_tokens = max(1, int(llm.get("max_output_tokens_per_turn", self._budget_max_output_tokens)))
+            self._budget_semantic_tokens = max(1, int(llm.get("semantic_fallback_tokens", self._budget_semantic_tokens)))
+            self._max_calls_per_level = max(1, int(llm.get("max_calls_per_level", self._max_calls_per_level)))
+            overrides = llm.get("max_calls_per_level_overrides")
+            self._level_overrides = {str(k): max(1, int(v)) for k, v in overrides.items()} if isinstance(overrides, dict) else {}
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+
+    def begin_turn_budget(self) -> None:
+        self._load_budget_policy()
+        self._turn_calls = 0
+        self._turn_reserved_tokens = 0
+        self._turn_active = True
+        self._level_calls = {}
+
+    def budget_status(self) -> Dict[str, Any]:
+        return {
+            "active": self._turn_active, "calls": self._turn_calls, "max_calls": self._budget_max_calls,
+            "reserved_output_tokens": self._turn_reserved_tokens, "max_output_tokens": self._budget_max_output_tokens,
+            "remaining_calls": max(0, self._budget_max_calls - self._turn_calls),
+            "remaining_output_tokens": max(0, self._budget_max_output_tokens - self._turn_reserved_tokens),
+            "max_calls_per_level": self._max_calls_per_level,
+            "level_calls": dict(self._level_calls),
+        }
+
+    def _reserve_budget(self, requested_tokens: int, level: Optional[str] = None) -> int:
+        if not self._turn_active:
+            self.begin_turn_budget()
+        requested = max(1, int(requested_tokens))
+        if self._turn_calls >= self._budget_max_calls:
+            raise CognitiveBudgetExceeded(f"LLM call budget exceeded: {self._budget_max_calls} calls per turn")
+        if level and self._level_calls.get(level, 0) >= self._level_overrides.get(level, self._max_calls_per_level):
+            cap = self._level_overrides.get(level, self._max_calls_per_level)
+            raise CognitiveBudgetExceeded(
+                f"LLM per-level call budget exceeded: '{level}' already used "
+                f"{self._level_calls.get(level, 0)}/{cap} calls this turn"
+            )
+        remaining = self._budget_max_output_tokens - self._turn_reserved_tokens
+        # PROTECTED FLOOR for the final reply (2026-09-12, from UK's
+        # live trace: turns showing "tokens_used=2700/2700 ...
+        # status=failed"). Perception and the semantic fallback are
+        # PREPARATORY calls -- they exist to help produce an answer,
+        # and it is never correct for them to consume so much of the
+        # turn budget that the ANSWER itself can't be generated. Yet
+        # nothing stopped them: they reserved from the same flat pool,
+        # first-come-first-served, so two unlucky preparatory calls
+        # could leave zero for the reply and the whole turn failed
+        # with no output at all. Preparatory levels now can't touch
+        # the last RESPONSE_TOKEN_FLOOR tokens; response generation
+        # itself still draws from the full remaining pool.
+        if level and level not in ("response_generation", None):
+            usable = remaining - self.RESPONSE_TOKEN_FLOOR
+            if usable <= 0 or requested > usable:
+                raise CognitiveBudgetExceeded(
+                    f"LLM output-token budget exceeded: '{level}' requested {requested} tokens but only "
+                    f"{max(0, usable)} are available to preparatory calls (the last "
+                    f"{self.RESPONSE_TOKEN_FLOOR} tokens are reserved for the final reply)"
+                )
+        if remaining <= 0 or requested > remaining:
+            raise CognitiveBudgetExceeded(
+                f"LLM output-token budget exceeded: requested {requested} tokens but only "
+                f"{max(0, remaining)} remain of the {self._budget_max_output_tokens}-token turn budget"
+            )
+        self._turn_calls += 1
+        if level:
+            self._level_calls[level] = self._level_calls.get(level, 0) + 1
+        self._turn_reserved_tokens += requested
+        return requested
+>>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
     def verify_offline_ready(self) -> bool:
         """
@@ -445,6 +699,52 @@ class HybridLLMBridge:
             )
             self.last_error = None
             self.is_ready = True
+<<<<<<< HEAD
+=======
+            self.last_backend = "groq_tools"
+            return message
+        except Exception as exc:
+            self.last_error = str(exc)
+            self.last_backend = "groq_tools_error"
+            log_event("llm_bridge", f"groq tool-call failed: {exc}", level="error")
+            return None
+
+    def generate_response(self, system_prompt: str, user_input: str, max_tokens: int = 512, temperature: float = 0.7, level: Optional[str] = None, **kwargs) -> str:
+        reserved_tokens = self._reserve_budget(max_tokens, level=level)
+        bounded_system, bounded_user = self._context_budgeter.optimize_payload(system_prompt, user_input, max_tokens=reserved_tokens)
+        online = self._is_online()
+        have_groq_key = bool(os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY"))
+        allow_local_fallback = self._force_mode == "offline" or os.getenv("JARVIS_ALLOW_LOCAL_FALLBACK", "false").strip().lower() in {"1", "true", "yes", "on"}
+        # Safety gate: online failures must not silently instantiate the
+        # Offline_LLM GGUF (1.5B, still real RAM/CPU cost) on mobile/PRoot.
+        # Keep local fallback explicitly opt-in twice.
+        heavy_local_opt_in = os.getenv("JARVIS_ENABLE_HEAVY_LOCAL_MODEL", "false").strip().lower() in {"1", "true", "yes", "on"}
+        allow_local_fallback = allow_local_fallback and (self._force_mode == "offline" or heavy_local_opt_in)
+        if online and have_groq_key:
+            try:
+                result = self._get_groq().generate(system_prompt=bounded_system, user_input=bounded_user, max_tokens=reserved_tokens, temperature=temperature, response_format=kwargs.get("response_format"), reasoning_effort=kwargs.get("reasoning_effort"))
+                self.last_error = None
+                self.is_ready = True
+                self.last_backend = "groq"
+                return result
+            except Exception as exc:
+                self.last_error = str(exc)
+                self.last_backend = "groq_error"
+                log_event("llm_bridge", f"groq API failed: {exc}", level="error")
+                if not allow_local_fallback:
+                    self.is_ready = False
+                    return "[LLM unavailable: Groq request failed; local fallback is disabled]"
+        if not allow_local_fallback:
+            self.last_backend = "blocked"
+            self.is_ready = False
+            self.last_error = self.last_error or "No usable online LLM backend"
+            return "[LLM unavailable: local fallback is disabled]"
+        try:
+            result = self._get_local().generate(system_prompt=bounded_system, user_input=bounded_user, max_tokens=reserved_tokens, temperature=temperature)
+            self.last_error = None
+            self.is_ready = True
+            self.last_backend = "local"
+>>>>>>> 90fbd2a (Save local project changes before branch checkout)
             return result
         except Exception as exc:
             # This string used to be the ONLY place a broken model

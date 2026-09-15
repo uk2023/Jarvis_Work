@@ -23,7 +23,9 @@ import time
 import traceback
 import asyncio
 
-from fastapi import APIRouter
+from typing import Optional
+
+from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 
 from . import database
@@ -380,7 +382,7 @@ async def trigger_idle():
 # =====================================================================
 
 @router.post("/api/chat")
-async def chat_v6(payload: dict):
+async def chat_v6(payload: dict, request: Request = None, authorization: Optional[str] = Header(None)):
     """
     Same underlying executor as the websocket path (routes_ws.py) --
     cli.py's execute_cognitive_query(), which calls the real
@@ -393,17 +395,80 @@ async def chat_v6(payload: dict):
     if executor is None:
         return JSONResponse({"status": "error", "message": "Cognitive engine not bound yet."}, status_code=503)
 
+    # SPEAKER IDENTITY (2026-09-13). Resolved from the Authorization
+    # header, never from the payload -- a body-supplied username would
+    # let any caller claim to be someone else and reach that person's
+    # private memory. Unauthenticated callers stay an unverified guest
+    # rather than being rejected, so existing local/CLI flows keep
+    # working; they simply get no personal memory.
+    speaker_ctx = None
+    try:
+        from .routes_auth import get_speaker
+        from core.runtime.session_registry import touch_session
+
+        speaker = get_speaker(authorization)
+        speaker_ctx = speaker.as_dict() if hasattr(speaker, "as_dict") else dict(speaker or {})
+
+        # WHO IS TALKING. Registered per request so several people can
+        # be in conversation at once and each turn is attributed to the
+        # right one -- previously nothing recorded the caller at all,
+        # which is why the monitor could not show it and why JARVIS
+        # could not answer "kaun baat kar raha hai".
+        client_ip = "unknown"
+        try:
+            if request is not None and request.client:
+                client_ip = request.client.host or "unknown"
+        except Exception:
+            pass
+        token = (authorization or "").replace("Bearer ", "").strip()
+        session = touch_session(
+            token or f"guest@{client_ip}",
+            username=speaker_ctx.get("username"),
+            role=speaker_ctx.get("role", "guest"),
+            ip=client_ip,
+            channel="web",
+            counts_as_turn=True,
+        )
+        speaker_ctx["ip"] = client_ip
+        speaker_ctx["session_turns"] = session.get("turns", 0)
+        # request_id + session_id so every trace can answer WHO / WHICH
+        # SESSION / WHICH REQUEST (spec section 12).
+        from core.runtime.identity_trace import new_request_id
+        speaker_ctx["request_id"] = new_request_id()
+        speaker_ctx["session_id"] = session.get("session_key")
+        speaker_ctx["channel"] = "web"
+
+        brain = getattr(integration, "brain", None)
+        if brain is not None:
+            brain.current_speaker = speaker_ctx
+    except Exception:
+        speaker_ctx = None
+
+    # Thinking mode from the composer toggle. 'auto' lets JARVIS decide
+    # per turn (see core/cognition/thinking.py); the brain reads this
+    # off itself rather than taking another parameter through the whole
+    # call chain.
+    try:
+        brain_obj = getattr(integration, "brain", None)
+        if brain_obj is not None:
+            mode = str((payload or {}).get("thinking_mode", "auto")).lower()
+            brain_obj.thinking_mode = mode if mode in ("off", "auto", "on") else "auto"
+    except Exception:
+        pass
+
     message = (payload or {}).get("message", "")
     session_id = (payload or {}).get("sessionId") or "main_session"
     if not message.strip():
         return JSONResponse({"status": "error", "message": "message is required."}, status_code=400)
 
+    _turn_started = time.time()
     try:
         database.save_message_to_db(session_id=session_id, sender="user", text=message, source="web")
 
         reply = await asyncio.to_thread(executor, message, "web")
         reply_str = str(reply)
 
+<<<<<<< HEAD
         trace = getattr(integration.brain, "last_turn_trace", None) if integration.brain else None
         trace_log_payload = None
         extracted_fact = None
@@ -434,6 +499,28 @@ async def chat_v6(payload: dict):
                     "value": signal.get("value"),
                     "confidence": 0.7,
                 }
+=======
+        trace = real_turn_trace(integration.brain)
+
+        # IDENTITY-TAGGED TRACE (spec section 12). Recorded here, where
+        # the speaker and the outcome are both known, so the entry can
+        # answer who/which session/which request without guessing.
+        try:
+            from core.runtime.identity_trace import record as _trace_record
+            _trace_record(
+                request_id=(speaker_ctx or {}).get("request_id") or "req_unknown",
+                speaker=speaker_ctx or {"role": "guest"},
+                user_input=message,
+                response=reply_str,
+                workflow=trace if isinstance(trace, dict) else {"trace": str(trace)[:1500]},
+                duration_ms=(time.time() - _turn_started) * 1000,
+                status="completed",
+            )
+        except Exception:
+            pass
+        trace_summary = turn_trace_summary(trace, integration.brain)
+        extracted_fact = extracted_fact_from_trace(trace)
+>>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
         message_id = database.save_message_to_db(
             session_id=session_id,

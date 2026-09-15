@@ -329,9 +329,158 @@ def create_jarvis(
         heartbeat=heartbeat,
     )
 
+<<<<<<< HEAD
     # =========================================================
     # 13. ATTACH ORGANS
     # =========================================================
+=======
+    def _on_heartbeat(event) -> None:
+        payload = getattr(event, "payload", {}) or {}
+        now = __import__("time").time()
+        if now - last_monitor_run[0] >= monitor_cooldown:
+            last_monitor_run[0] = now
+            runtime_monitor.write_snapshot(jarvis=None, organs={
+                "heartbeat": heartbeat,
+                "llm_bridge": llm_bridge,
+                "memory": memory,
+                "learning": learning,
+                "evaluator": evaluator,
+                "knowledge_builder": knowledge_builder,
+                "evolution": evolution,
+                "idle_loop": idle_loop,
+                "state": state,
+                # UK explicitly asked to be able to SEE this happen
+                # (monitor.py showed no idle-consolidation activity at
+                # all before) -- exposed the same way every other organ
+                # already is, via RuntimeMonitor._stats()'s generic
+                # `.statistics()` lookup (aliased to .status() on
+                # MemoryConsolidator).
+                "consolidator": consolidator,
+            })
+        if payload.get("idle"):
+            with idle_lock:
+                if now - last_idle_run[0] >= idle_cooldown:
+                    last_idle_run[0] = now
+                    idle_loop.step()
+                    # Background knowledge maintenance: before this, both
+                    # LearningCoordinator.consolidate() and
+                    # KnowledgeBuilder.accept_reliable() were fully
+                    # implemented but never actually called by anything
+                    # at runtime -- the organism would idle-cycle on
+                    # goals/curiosity forever while accepted-but-pending
+                    # knowledge candidates and consolidatable episodic
+                    # memory just sat there unprocessed. Piggyback on the
+                    # same idle tick (and its cooldown) used above so
+                    # this runs "whenever JARVIS isn't busy talking to
+                    # someone", each step independently guarded so one
+                    # failing never blocks the other or the idle loop.
+                    try:
+                        learning.consolidate(limit=25)
+                    except Exception as exc:
+                        events.safe_emit(
+                            "IDLE_CONSOLIDATION_FAILED", {"error": str(exc)}, source="bootstrap"
+                        ) if hasattr(events, "safe_emit") else None
+                    try:
+                        knowledge_builder.accept_reliable(minimum_confidence=0.75, limit=25)
+                    except Exception as exc:
+                        events.safe_emit(
+                            "IDLE_KNOWLEDGE_ACCEPT_FAILED", {"error": str(exc)}, source="bootstrap"
+                        ) if hasattr(events, "safe_emit") else None
+                    try:
+                        # 2026-09-11 roadmap Phase 5 (previously dead
+                        # code): SemanticEvolutionCycle/SemanticKnowledge
+                        # Promotion were fully written but NEVER imported
+                        # anywhere -- every LLM-fallback semantic
+                        # interpretation sat in learning_boundary.py's
+                        # in-memory candidates dict forever, never
+                        # promoted into LearnedSemanticRegistry, so
+                        # JARVIS kept re-asking the LLM for input
+                        # patterns it had already successfully
+                        # interpreted before. semantic_evolution_cycle
+                        # is constructed lazily here (not at bootstrap
+                        # top) so it always sees the SAME
+                        # learning_boundary instance Brain actually
+                        # wired up in _configure_semantic_fallback().
+                        boundary = getattr(semantic_understanding, "learning_boundary", None)
+                        if boundary is not None:
+                            from core.cognition.semantic_understanding.evolution_cycle import SemanticEvolutionCycle
+                            evolution_cycle = SemanticEvolutionCycle(boundary=boundary, learning_coordinator=learning)
+                            promo_result = evolution_cycle.promote_ready_candidates(min_confidence=0.75, limit=10)
+                            if promo_result.get("promoted"):
+                                events.safe_emit(
+                                    "IDLE_SEMANTIC_CANDIDATES_PROMOTED", promo_result, source="bootstrap"
+                                ) if hasattr(events, "safe_emit") else None
+                    except Exception as exc:
+                        events.safe_emit(
+                            "IDLE_SEMANTIC_PROMOTION_FAILED", {"error": str(exc)}, source="bootstrap"
+                        ) if hasattr(events, "safe_emit") else None
+                    try:
+                        # SELF-AUTHORED EXTRACTION PATTERNS (2026-09-12,
+                        # UK's explicit "regex = hardcoding" objection):
+                        # cluster boundary.candidates (real inputs where
+                        # native symbolic parsing failed and the LLM had
+                        # to step in -- see learning_boundary.py) by a
+                        # cheap shared-shape heuristic (same first two
+                        # words), and if 2+ genuinely similar failures
+                        # exist, ask JARVIS's own pattern_synthesizer to
+                        # propose+sandbox-test a new native pattern for
+                        # that shape. Nothing here ever applies a
+                        # pattern live -- see Brain.confirm_pattern();
+                        # this only ever WRITES A PENDING PROPOSAL, same
+                        # as self-authored behavioral rules.
+                        boundary = getattr(semantic_understanding, "learning_boundary", None)
+                        synthesizer = getattr(brain, "pattern_synthesizer", None)
+                        if boundary is not None and synthesizer is not None:
+                            from collections import defaultdict
+                            clusters = defaultdict(list)
+                            for candidate in boundary.candidates.values():
+                                text = getattr(candidate, "input_text", "") or ""
+                                words = text.strip().lower().split()
+                                if len(words) >= 2:
+                                    clusters[" ".join(words[:2])].append(text)
+                            for shape, examples in clusters.items():
+                                if len(examples) >= 2:
+                                    proposal = synthesizer.propose_from_candidates(
+                                        similar_examples=examples[:5],
+                                        gap_description=f"native extraction repeatedly failed on inputs shaped like '{shape}...'",
+                                    )
+                                    if proposal:
+                                        events.safe_emit(
+                                            "IDLE_PATTERN_PROPOSED", proposal, source="bootstrap"
+                                        ) if hasattr(events, "safe_emit") else None
+                                    break  # one proposal per idle cycle -- stay cheap, stay reviewable at UK's pace
+                    except Exception as exc:
+                        events.safe_emit(
+                            "IDLE_PATTERN_SYNTHESIS_FAILED", {"error": str(exc)}, source="bootstrap"
+                        ) if hasattr(events, "safe_emit") else None
+                    try:
+                        # UK's #5 recall/learning/memory proposal: mine
+                        # the persistent trace log for repeated, safe,
+                        # always-consistent small talk and promote it
+                        # into a zero-LLM-call native template.
+                        brain.native_response_learner.run_idle_cycle()
+                    except Exception as exc:
+                        events.safe_emit(
+                            "IDLE_NATIVE_RESPONSE_LEARNING_FAILED", {"error": str(exc)}, source="bootstrap"
+                        ) if hasattr(events, "safe_emit") else None
+                    try:
+                        # UK's #3 recall/learning/memory proposal
+                        # (spaced-repetition-inspired decay): personal
+                        # facts nobody has recalled/reinforced in 14+
+                        # days quietly weaken, mirroring the forgetting
+                        # curve, instead of every fact sitting at equal
+                        # permanent weight forever.
+                        decayed_ids = memory.semantic.decay_unused(days_threshold=14.0, confidence_delta=0.02)
+                        events.safe_emit(
+                            "MEMORY_DECAY_COMPLETED",
+                            {"decayed_count": len(decayed_ids), "timestamp": __import__("time").time()},
+                            source="bootstrap",
+                        ) if hasattr(events, "safe_emit") else None
+                    except Exception as exc:
+                        events.safe_emit(
+                            "IDLE_MEMORY_DECAY_FAILED", {"error": str(exc)}, source="bootstrap"
+                        ) if hasattr(events, "safe_emit") else None
+>>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
     jarvis.attach_organ(
         "memory",

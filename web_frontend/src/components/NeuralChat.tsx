@@ -115,9 +115,33 @@ export const NeuralChat: React.FC<NeuralChatProps> = ({
   };
 
   const handleSubmit = (e?: React.FormEvent) => {
+<<<<<<< HEAD
     if (e) e.preventDefault();
     const trimmed = inputText.trim();
     if (!trimmed || isThinking) return;
+=======
+    e?.preventDefault();
+    const text = inputText.trim();
+    if (!text || isThinking) return;
+    onSendMessage(text); setInputText(''); setIsExpanded(false); setShowExpand(false);
+    requestAnimationFrame(() => { if (textareaRef.current) textareaRef.current.style.setProperty('height', '48px', 'important'); });
+  };
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 640) { e.preventDefault(); handleSubmit(e); }
+  };
+  const autoResize = (e: React.ChangeEvent<HTMLTextAreaElement>) => setInputText(e.target.value);
+  const toggleExpand = () => { setIsExpanded(v => !v); requestAnimationFrame(() => textareaRef.current?.focus()); };
+  const toggleSpeechRecognition = () => {
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) { alert('Speech Recognition is not supported by your current browser.'); return; }
+    if (isListening) { setIsListening(false); return; }
+    const recognition = new SpeechRec(); recognition.lang = 'en-IN'; // Latin script, not Devanagari recognition.interimResults = false;
+    setIsListening(true); recognition.start();
+    recognition.onresult = (event: any) => { const t = event.results[0][0].transcript; setInputText(v => v ? `${v} ${t}` : t); setIsListening(false); };
+    recognition.onerror = () => setIsListening(false); recognition.onend = () => setIsListening(false);
+  };
+  const speakText = (text: string) => { if (!('speechSynthesis' in window)) return; speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate=1.05; u.pitch=.95; speechSynthesis.speak(u); };
+>>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
     onSendMessage(trimmed);
     setInputText('');
