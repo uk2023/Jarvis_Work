@@ -5,6 +5,35 @@ React + TypeScript + Vite UI for the JARVIS Organism backend
 mock server entirely -- every endpoint it calls now hits the real
 organism (see `backend/routes_frontend_v6.py`).
 
+## Getting a fresh AI Studio export into this folder
+
+If you're iterating on the UI in AI Studio and bringing a new export
+back here: **you can copy almost everything from the export straight
+over this folder's `src/` and `index.html`.** The frontend now
+connects to the backend directly by hostname:8000 (see
+`src/api/client.ts`'s `computeDefaultBackendUrl()`), not through any
+Vite proxy config -- so `vite.config.ts` no longer needs any
+project-specific customization to keep working.
+
+**One thing to check by hand each time** (this is a single line, not
+a script): AI Studio's own `package.json` has `"dev": "tsx server.ts"`
+-- that launches AI Studio's OWN standalone Express demo server, not
+Vite. If you copy AI Studio's `package.json` over this one, open it
+and make sure the `dev` script says:
+```json
+"dev": "vite"
+```
+Everything else in `package.json` (dependencies, `build`/`preview`/
+`lint`) can be safely taken from the fresh export.
+
+`src/api/client.ts` specifically also carries a handful of methods
+this project's real backend depends on that AI Studio doesn't know
+about (`sendCliCommand`, `getResources`, the voice settings methods,
+`getSafetyHistory`) -- if a fresh export's `client.ts` is missing
+them, the Virtual CLI's `/commands`, the voice control panel, and the
+diagnostics panel will silently stop working. Worth a quick search
+for `sendCliCommand` in the new file before replacing the old one.
+
 ## Dev (hot reload)
 
 ```bash
@@ -13,15 +42,12 @@ npm install
 npm run dev
 ```
 
-Vite's dev server proxies `/api` and `/ws` to `http://127.0.0.1:8000`
-by default -- start the Python backend first (`python3 cli.py` or
-however you normally run it), then `npm run dev` here and edit
-components; changes appear instantly, no rebuild.
-
-If the backend is running somewhere else (e.g. on your Android device
-while you develop from a laptop on the same network), copy
-`.env.example` to `.env` and set `VITE_BACKEND_URL` to that machine's
-address.
+Start the Python backend first (`python3 cli.py`, option 2 or 3),
+then `npm run dev` here and edit components -- changes appear
+instantly, no rebuild. If the backend is running on a different
+machine (e.g. your Android device while you develop from a laptop),
+open the app once and call `api.setBackendUrl('http://<that-machine>:8000')`
+from the browser console, or set `VITE_BACKEND_URL` and rebuild.
 
 ## Production build
 
@@ -39,8 +65,8 @@ dashboard in `frontend/`.
 
 ## What talks to what
 
-Every network call this app makes lives in `src/App.tsx`. No other
-component touches the network. Endpoints:
+Every network call this app makes lives in `src/api/client.ts`. No
+other component touches the network directly. Endpoints:
 
 | Endpoint | Real data source |
 |---|---|
@@ -48,4 +74,7 @@ component touches the network. Endpoints:
 | `GET/POST/DELETE /api/memory/engrams` | `SemanticMemory` (FAISS + SQLite) |
 | `GET/POST /api/autonomy/state`, `/trigger-idle` | `GoalManager`, `Curiosity`, `IdleLoop`, `EvolutionEngine` |
 | `POST /api/chat` | `Brain.think_and_respond()` -- same pipeline as the CLI and `/ws` |
+| `POST /api/cli_command` | `cli.py`'s own `handle_cli_command()`, output captured live |
+| `GET/POST /api/voice/*` | `core/runtime/voice.py` (real Termux:API TTS/STT) |
+| `GET /api/resources`, `/api/health` | `backend/routes_frontend_v6_extra.py` |
 | `GET/POST /api/sessions`, `GET /api/history` | `backend/database.py` (SQLite chat history) |

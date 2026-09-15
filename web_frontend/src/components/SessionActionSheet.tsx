@@ -82,7 +82,7 @@ export const SessionActionSheet: React.FC<SessionActionSheetProps> = ({
             >
               {session.title}
             </h3>
-            <span className="text-[10px] text-cyan-400/80 tracking-normal">
+            <span className="text-xs text-brand-400/80 tracking-normal">
               {session.msgCount} {session.msgCount === 1 ? 'message' : 'messages'}
             </span>
           </div>
@@ -91,7 +91,7 @@ export const SessionActionSheet: React.FC<SessionActionSheetProps> = ({
           {isRenaming ? (
             <form onSubmit={handleSaveRename} className="space-y-4 mb-3">
               <div>
-                <label className={`block text-[11px] mb-1.5 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                <label className={`block text-xs mb-1.5 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
                   Thread Title
                 </label>
                 <input
@@ -101,8 +101,8 @@ export const SessionActionSheet: React.FC<SessionActionSheetProps> = ({
                   onChange={e => setRenameValue(e.target.value)}
                   className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-sans outline-none border transition ${
                     isDark
-                      ? 'bg-white/5 border-white/20 text-white focus:border-cyan-400'
-                      : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-cyan-500'
+                      ? 'bg-white/5 border-white/20 text-white focus:border-brand-400'
+                      : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-brand-500'
                   }`}
                   placeholder="Enter new title..."
                 />
@@ -121,7 +121,7 @@ export const SessionActionSheet: React.FC<SessionActionSheetProps> = ({
                 <button
                   type="submit"
                   disabled={!renameValue.trim()}
-                  className="flex-1 py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-black text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+                  className="flex-1 py-2.5 rounded-xl bg-brand-400 hover:bg-brand-300 text-black text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
                 >
                   <Check className="w-3.5 h-3.5" />
                   <span>Save</span>
@@ -156,7 +156,7 @@ export const SessionActionSheet: React.FC<SessionActionSheetProps> = ({
                   isDark ? 'hover:bg-white/5 text-white' : 'hover:bg-slate-100 text-slate-800'
                 }`}
               >
-                <div className="w-6 h-6 flex items-center justify-center text-cyan-400">
+                <div className="w-6 h-6 flex items-center justify-center text-brand-400">
                   <Pencil className="w-4 h-4" />
                 </div>
                 <span className="text-xs sm:text-sm font-sans font-medium">Rename</span>

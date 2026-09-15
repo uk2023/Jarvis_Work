@@ -4,6 +4,8 @@ import time
 import threading
 from typing import Any, Dict, Optional
 
+from ..runtime.log import log_event
+
 
 class Lifecycle:
     """
@@ -394,9 +396,7 @@ class Lifecycle:
 
             except Exception as exc:
 
-                print(
-                    f"[Lifecycle State Error] {exc}"
-                )
+                log_event("lifecycle", f"state update failed: {exc}", level="error")
 
     # =============================================================
     # EVENT

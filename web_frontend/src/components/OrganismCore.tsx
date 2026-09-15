@@ -27,7 +27,7 @@ export const OrganismCore: React.FC<OrganismCoreProps> = ({
           {/* Outer Pulsing Glow */}
           <motion.div
             className={`absolute inset-0 rounded-full border ${
-              isDark ? 'border-cyan-400/30' : 'border-cyan-500/40'
+              isDark ? 'border-brand-400/30' : 'border-brand-500/40'
             }`}
             animate={{
               scale: [1, 1.1, 1],
@@ -43,7 +43,7 @@ export const OrganismCore: React.FC<OrganismCoreProps> = ({
 
           <motion.div
             className={`absolute w-24 h-24 sm:w-30 sm:h-30 rounded-full border border-dashed ${
-              isDark ? 'border-cyan-400/50' : 'border-cyan-600/50'
+              isDark ? 'border-brand-400/50' : 'border-brand-600/50'
             }`}
             animate={{ rotate: -360 }}
             transition={{ duration: 14, repeat: Infinity, ease: 'linear' }}
@@ -53,15 +53,15 @@ export const OrganismCore: React.FC<OrganismCoreProps> = ({
           <motion.div
             className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 flex flex-col items-center justify-center backdrop-blur-xl z-10 ${
               isDark
-                ? 'bg-[#050508]/90 border-cyan-400 shadow-[0_0_35px_rgba(34,211,238,0.45)]'
-                : 'bg-white border-cyan-500 shadow-xl'
+                ? 'bg-[#050508]/90 border-brand-400 shadow-[0_0_35px_rgba(34,211,238,0.45)]'
+                : 'bg-white border-brand-500 shadow-xl'
             }`}
             animate={{ scale: [0.97, 1.03, 0.97] }}
             transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
           >
             <span
               className={`font-bold font-mono text-xl sm:text-2xl tracking-wider ${
-                isDark ? 'text-cyan-300 drop-shadow-[0_0_8px_#22d3ee]' : 'text-slate-900'
+                isDark ? 'text-brand-300 drop-shadow-[0_0_8px_#22d3ee]' : 'text-slate-900'
               }`}
             >
               J
@@ -74,19 +74,19 @@ export const OrganismCore: React.FC<OrganismCoreProps> = ({
             animate={{ rotate: 360 }}
             transition={{ duration: 4.5, repeat: Infinity, ease: 'linear' }}
           >
-            <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee] -top-1 left-1/2 -translate-x-1/2 absolute" />
+            <div className="w-2 h-2 rounded-full bg-brand-400 shadow-[0_0_8px_#22d3ee] -top-1 left-1/2 -translate-x-1/2 absolute" />
           </motion.div>
         </div>
 
         {/* Pulse Telemetry Pill */}
         <div
-          className={`mt-3 px-3 py-0.5 rounded-full text-[10px] font-mono flex items-center gap-1.5 border shadow-sm ${
+          className={`mt-3 px-3 py-0.5 rounded-full text-xs font-mono flex items-center gap-1.5 border shadow-sm ${
             isDark
-              ? 'bg-cyan-950/40 border-cyan-500/30 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.15)]'
-              : 'bg-cyan-50 border-cyan-300 text-cyan-800'
+              ? 'bg-brand-950/40 border-brand-500/30 text-brand-300 shadow-[0_0_10px_rgba(34,211,238,0.15)]'
+              : 'bg-brand-50 border-brand-300 text-brand-800'
           }`}
         >
-          <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_6px_#22d3ee]" />
+          <div className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse shadow-[0_0_6px_#22d3ee]" />
           <span className="uppercase tracking-widest font-semibold font-mono">
             PULSE {telemetry.bpm} BPM &bull; LATENCY {telemetry.avgLatencyMs}MS
           </span>
@@ -102,21 +102,21 @@ export const OrganismCore: React.FC<OrganismCoreProps> = ({
         <span>JARVIS COGNITIVE OS</span>
       </h2>
       <p
-        className={`text-[11px] sm:text-xs max-w-sm mb-5 font-sans leading-relaxed ${
+        className={`text-xs sm:text-xs max-w-sm mb-5 font-sans leading-relaxed ${
           isDark ? 'text-white/50' : 'text-slate-500'
         }`}
       >
-        Offline Qwen 3B neural core active with FAISS associative memory and subconscious learning.
+        Native cognitive pipeline active with FAISS associative memory, SQLite persistence, and Groq fallback.
       </p>
 
       {/* Real-time Status Badges */}
-      <div className="flex flex-wrap items-center justify-center gap-1.5 mb-5 text-[10px] font-mono">
+      <div className="flex flex-wrap items-center justify-center gap-1.5 mb-5 text-xs font-mono">
         <span
           className={`px-2.5 py-0.5 rounded-lg border flex items-center gap-1 ${
-            isDark ? 'bg-white/5 text-cyan-200 border-white/10' : 'bg-slate-100 text-slate-700 border-slate-200'
+            isDark ? 'bg-white/5 text-brand-200 border-white/10' : 'bg-slate-100 text-slate-700 border-slate-200'
           }`}
         >
-          <Radio className="w-2.5 h-2.5 text-cyan-400 animate-pulse" />
+          <Radio className="w-2.5 h-2.5 text-brand-400 animate-pulse" />
           <span>ASYNC LEARNING: ON</span>
         </span>
         <span
@@ -124,7 +124,7 @@ export const OrganismCore: React.FC<OrganismCoreProps> = ({
             isDark ? 'bg-white/5 text-white/80 border-white/10' : 'bg-slate-100 text-slate-700 border-slate-200'
           }`}
         >
-          <Cpu className="w-2.5 h-2.5 text-cyan-400" />
+          <Cpu className="w-2.5 h-2.5 text-brand-400" />
           <span>ARM64 8GB</span>
         </span>
         <span
@@ -144,15 +144,15 @@ export const OrganismCore: React.FC<OrganismCoreProps> = ({
           onClick={() => onQuickPrompt('Status check of all active subsystems and memory engrams')}
           className={`p-3 rounded-xl text-left transition shadow-sm group cursor-pointer border ${
             isDark
-              ? 'bg-white/[0.04] hover:bg-cyan-500/10 border-white/10 hover:border-cyan-400/40'
-              : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-cyan-500'
+              ? 'bg-white/[0.04] hover:bg-brand-500/10 border-white/10 hover:border-brand-400/40'
+              : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-brand-500'
           }`}
         >
-          <div className="text-[11px] text-cyan-500 dark:text-cyan-300 font-semibold flex items-center gap-1.5 mb-0.5">
-            <Cpu className="w-3 h-3 text-cyan-400" />
+          <div className="text-xs text-brand-500 dark:text-brand-300 font-semibold flex items-center gap-1.5 mb-0.5">
+            <Cpu className="w-3 h-3 text-brand-400" />
             <span>Check Subsystem Health</span>
           </div>
-          <p className={isDark ? 'text-[10px] text-white/40 truncate font-mono' : 'text-[10px] text-slate-500 truncate font-mono'}>
+          <p className={isDark ? 'text-xs text-white/40 truncate font-mono' : 'text-xs text-slate-500 truncate font-mono'}>
             Inspect 9 attached biological organs
           </p>
         </button>
@@ -162,15 +162,15 @@ export const OrganismCore: React.FC<OrganismCoreProps> = ({
           onClick={() => onQuickPrompt('What are my hardware setup and personal memory facts?')}
           className={`p-3 rounded-xl text-left transition shadow-sm group cursor-pointer border ${
             isDark
-              ? 'bg-white/[0.04] hover:bg-cyan-500/10 border-white/10 hover:border-cyan-400/40'
-              : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-cyan-500'
+              ? 'bg-white/[0.04] hover:bg-brand-500/10 border-white/10 hover:border-brand-400/40'
+              : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-brand-500'
           }`}
         >
-          <div className="text-[11px] text-cyan-500 dark:text-cyan-300 font-semibold flex items-center gap-1.5 mb-0.5">
-            <Zap className="w-3 h-3 text-cyan-400" />
+          <div className="text-xs text-brand-500 dark:text-brand-300 font-semibold flex items-center gap-1.5 mb-0.5">
+            <Zap className="w-3 h-3 text-brand-400" />
             <span>Recall Memory Facts</span>
           </div>
-          <p className={isDark ? 'text-[10px] text-white/40 truncate font-mono' : 'text-[10px] text-slate-500 truncate font-mono'}>
+          <p className={isDark ? 'text-xs text-white/40 truncate font-mono' : 'text-xs text-slate-500 truncate font-mono'}>
             Query FAISS vector store & relations
           </p>
         </button>
@@ -180,15 +180,15 @@ export const OrganismCore: React.FC<OrganismCoreProps> = ({
           onClick={() => onQuickPrompt('Mera ex ka naam Devyana hai aur mere dog ka naam Tommy h')}
           className={`p-3 rounded-xl text-left transition shadow-sm group cursor-pointer border ${
             isDark
-              ? 'bg-white/[0.04] hover:bg-cyan-500/10 border-white/10 hover:border-cyan-400/40'
-              : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-cyan-500'
+              ? 'bg-white/[0.04] hover:bg-brand-500/10 border-white/10 hover:border-brand-400/40'
+              : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-brand-500'
           }`}
         >
-          <div className="text-[11px] text-cyan-500 dark:text-cyan-300 font-semibold flex items-center gap-1.5 mb-0.5">
-            <Command className="w-3 h-3 text-cyan-400" />
+          <div className="text-xs text-brand-500 dark:text-brand-300 font-semibold flex items-center gap-1.5 mb-0.5">
+            <Command className="w-3 h-3 text-brand-400" />
             <span>Test Hinglish & Typos</span>
           </div>
-          <p className={isDark ? 'text-[10px] text-white/40 truncate font-mono' : 'text-[10px] text-slate-500 truncate font-mono'}>
+          <p className={isDark ? 'text-xs text-white/40 truncate font-mono' : 'text-xs text-slate-500 truncate font-mono'}>
             Auto-extract facts & fix spelling
           </p>
         </button>
@@ -198,15 +198,15 @@ export const OrganismCore: React.FC<OrganismCoreProps> = ({
           onClick={() => onQuickPrompt('Run diagnostic trace on typo-tolerant Hinglish pipeline')}
           className={`p-3 rounded-xl text-left transition shadow-sm group cursor-pointer border ${
             isDark
-              ? 'bg-white/[0.04] hover:bg-cyan-500/10 border-white/10 hover:border-cyan-400/40'
-              : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-cyan-500'
+              ? 'bg-white/[0.04] hover:bg-brand-500/10 border-white/10 hover:border-brand-400/40'
+              : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-brand-500'
           }`}
         >
-          <div className="text-[11px] text-cyan-500 dark:text-cyan-300 font-semibold flex items-center gap-1.5 mb-0.5">
-            <Activity className="w-3 h-3 text-cyan-400" />
+          <div className="text-xs text-brand-500 dark:text-brand-300 font-semibold flex items-center gap-1.5 mb-0.5">
+            <Activity className="w-3 h-3 text-brand-400" />
             <span>Diagnostics Trace</span>
           </div>
-          <p className={isDark ? 'text-[10px] text-white/40 truncate font-mono' : 'text-[10px] text-slate-500 truncate font-mono'}>
+          <p className={isDark ? 'text-xs text-white/40 truncate font-mono' : 'text-xs text-slate-500 truncate font-mono'}>
             Verify Qwen inference latency
           </p>
         </button>

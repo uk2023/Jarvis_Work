@@ -4,8 +4,6 @@ import json
 import os
 import re
 import time
-<<<<<<< HEAD
-=======
 import hashlib
 from .cognitive_router import CognitiveRouter
 from .companion_tools import CompanionToolsMixin
@@ -66,10 +64,11 @@ from ..learning.dependency_metrics import DependencyMetrics, contradiction_rate
 from ..learning.fallback_pattern_detector import FallbackPatternDetector
 from ..learning.category_word_learner import CategoryWordLearner
 from ..skills.skill_executor import SkillExecutor
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
 from typing import Any, Dict, Optional
 
 from ..learning.learning_queue import AsyncLearningQueue
+from ..runtime.log import log_event
+from ..runtime.chat_log import log_chat_turn
 
 
 
@@ -154,21 +153,21 @@ class Brain(CompanionToolsMixin):
         - the evolution engine
         - an unrestricted executor
 
-    Architecture:
+    Authoritative semantic architecture:
 
-        Input
+        User Input
           ↓
-        Brain
+        Perception
           ↓
-        ExperienceEngine
+        Semantic Understanding
           ↓
-        LearningCoordinator
+        Structured Semantic Result
           ↓
-        SelfEvaluator
+        Cognition
           ↓
-        KnowledgeBuilder
+        Response
           ↓
-        Memory / Consolidation
+        Experience / Learning
 
     Evolution remains controlled:
 
@@ -182,76 +181,10 @@ class Brain(CompanionToolsMixin):
 
     Brain only orchestrates these operations.
 
-    ----------------------------------------------------------------
-    FIX LOG (this version)
-    ----------------------------------------------------------------
-    Root cause of "knowledge table stays at 0 rows even though
-    episodes/chat_messages keep growing":
-
-        process_experience() was always building a knowledge
-        CANDIDATE (via KnowledgeBuilder.build / LearningCoordinator.learn)
-        but never ACCEPTING it. auto_accept defaulted to False
-        everywhere it was called from (including think_and_respond),
-        and the compatibility-fallback branch hard-coded
-        "accepted": False with no accept step at all.
-
-        A built-but-unaccepted knowledge candidate is normally kept
-        out of the persistent knowledge store on purpose (human/agent
-        review gate) — but nothing in the pipeline was ever calling
-        accept_knowledge() afterwards, so candidates just evaporated.
-
-    Fix:
-        1. Brain now has self.auto_accept_knowledge (default True).
-           think_and_respond() and process_experience() use this
-           instead of a hard-coded False.
-        2. The compatibility-fallback branch (no LearningCoordinator
-           connected) now actually calls knowledge_builder.accept()
-           when auto_accept is True, instead of silently discarding
-           the candidate.
-        3. Removed dead/unreachable code after the first `return` in
-           think_and_respond (duplicate pipeline-trigger block and a
-           duplicate `except` that could never execute and would have
-           been a SyntaxError-adjacent trap).
-        4. Removed the duplicate `_finish_cycle` / `_emit` method
-           definitions (Python just silently used the second one,
-           but keeping two definitions of the same method is a
-           landmine for future edits).
-
-    5. NEW: even with (1)-(4) fixed, normal chat still produced
-       zero knowledge. KnowledgeBuilder._extract_semantic_fact()
-       only accepts an EXPLICIT subject/predicate/value triple
-       already present in `context` or `outcome` — free chat text
-       never has that shape on its own. think_and_respond() now
-       makes a second, small LLM call (_extract_fact) after every
-       turn to pull a {subject, predicate, value} triple out of
-       the conversation (if one exists) and merges it into
-       `outcome` before process_experience() runs. This is the
-       step that actually turns "meri ex ka naam Devyana hai" into
-       a rememberable fact instead of just a chat log line.
-    ----------------------------------------------------------------
-    FIX LOG (0.6.0 — single-call + async learning queue)
-    ----------------------------------------------------------------
-    Root cause of the latency the architecture review flagged:
-    think_and_respond() was making TWO blocking LLM calls per turn
-    (reply, then a separate fact-extraction call) and running the
-    ENTIRE learning pipeline inline before returning to the user.
-
-    Fix:
-        1. LLMBridge.generate_combined() asks Qwen to return
-           {response, memory} in ONE call — half the tokens, half
-           the latency, same "Qwen never writes the DB" separation.
-        2. process_experience() no longer runs inline. It's handed
-           to AsyncLearningQueue (core/learning/learning_queue.py),
-           a single ordered background worker, so learning can never
-           add latency to a reply and can never race itself across
-           two overlapping prompts. Retrieval (build_context) still
-           runs synchronously at the START of every new prompt, so
-           the next turn always sees whatever the previous turn
-           finished learning.
-        3. Falls back to the old two-call synchronous path automatically
-           if the connected llm_bridge doesn't implement
-           generate_combined(), so nothing breaks for older bridges.
-    ----------------------------------------------------------------
+    Semantic understanding is authoritative for semantic interpretation.
+    Brain orchestrates Perception → Semantic Understanding → Cognition →
+    Response → Experience / Learning and does not perform a second semantic
+    extraction pass through the LLM.
     """
 
     VERSION = "0.6.0"
@@ -270,6 +203,10 @@ class Brain(CompanionToolsMixin):
         planner=None,
         goal_manager=None,
         llm_bridge=None,
+        cognitive_router=None,
+        perception_engine=None,
+        skill_registry=None,
+        skill_executor=None,
         auto_accept_knowledge: bool = True,
     ):
         # =========================================================
@@ -277,8 +214,6 @@ class Brain(CompanionToolsMixin):
         # =========================================================
 
         self.memory = memory_manager
-<<<<<<< HEAD
-=======
         # Native, zero-LLM-cost rule capture -- see core/cognition/user_rules.py.
         # getattr(...) because self.memory can be a bare MemoryManager
         # (has .semantic) OR None (standalone/test Brain instances);
@@ -410,7 +345,6 @@ class Brain(CompanionToolsMixin):
         # avoidable latency (each is real compute, not free). Cache is
         # cleared at the top of every think_and_respond() call.
         self._context_cache: dict = {}
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
         self.experience = experience_engine
         self.evaluator = self_evaluator
         self.knowledge_builder = knowledge_builder
@@ -429,8 +363,6 @@ class Brain(CompanionToolsMixin):
         self.llm = llm_bridge
 
         # =========================================================
-<<<<<<< HEAD
-=======
         # COGNITION / PERCEPTION / SKILLS
         # =========================================================
 
@@ -469,7 +401,6 @@ class Brain(CompanionToolsMixin):
         self._pending_expectation = None
 
         # =========================================================
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
         # LEARNING POLICY
         # =========================================================
         # Whether experiences that pass through process_experience()
@@ -534,6 +465,16 @@ class Brain(CompanionToolsMixin):
             "kese": "kaise", "kse": "kaise",
             "tmhe": "tumhe", "tmhara": "tumhara", "tm": "tum",
             "dedo": "de do", "dena": "dena",
+            # Added from real observed transcript failures -- each of
+            # these directly caused an extraction-cascade failure
+            # ("Extraction cascade exhausted...", confidence=0.00)
+            # before being caught here.
+            "hye": "hey", "nam": "naam",
+            "onnly": "only", "gielfriend": "girlfriend", "girlfrien": "girlfriend",
+            "nahu": "nahi", "crator": "creator",
+            "tunhe": "tumhe", "tunhara": "tumhara", "tunhari": "tumhari",
+            "muje": "mujhe", "mujje": "mujhe",
+            "insoect": "inspect",
         }
 
     def _normalize_hinglish_typos(self, text: str) -> Dict[str, Any]:
@@ -571,26 +512,22 @@ class Brain(CompanionToolsMixin):
         identity_profile: Optional[Dict[str, Any]] = None,
         source: str = "cli",
     ) -> str:
-    
         """
-        Synthesizes Identity, Memory Context, and User Input,
-        queries the LLM bridge (used purely as a voice — see
-        llm_bridge.py), and passes the resulting experience through
-        the full Organism Learning Pipeline so JARVIS actually
-        retains it instead of just generating a reply.
+        Canonical Brain entry point.
 
-        Also builds self.last_turn_trace — a single structured record
-        of exactly what happened this turn (timings, what was
-        retrieved, what typos were corrected, what memory signal came
-        back, background-queue status). cli.py's diagnostics AND the
-        web backend's /api/chat + /api/organism/state both read from
-        this same object, so both surfaces show identical real data
-        instead of each fabricating their own trace text.
+        Flow:
+            User Input
+              -> Perception
+              -> Cognitive Router
+              -> Goal / Native / Hybrid / LLM
+              -> Brain Decision
+              -> Action Response
+              -> Trace
+
+        The router is the authority for choosing the cognition route.
+        LLM is optional and is only required for routes that actually
+        need language cognition/synthesis.
         """
-<<<<<<< HEAD
-        turn_start = time.time()
-
-=======
         started = time.time()
         user_input = str(user_input or "").strip()
 
@@ -1081,58 +1018,198 @@ class Brain(CompanionToolsMixin):
         # ---------------------------------------------------------
         # 6. LLM / KNOWN / OTHER LANGUAGE ROUTE
         # ---------------------------------------------------------
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
         if self.llm is None:
-            return "[Brain Error: LLM Bridge is not connected to Brain.]"
+            response = self._fallback(user_input)
 
-        # 0. Normalize known Hinglish typo forms BEFORE retrieval only.
-        #    The raw user_input is still what gets stored/shown.
+            self.last_brain_decision = {
+                "mode": mode,
+                "status": "llm_unavailable",
+            }
+
+            self._record_action_response(
+                mode=mode,
+                status="degraded",
+                response=response,
+            )
+
+            self._trace(
+                user_input,
+                response,
+                route,
+                perception,
+                started,
+                False,
+            )
+            return response
+
+        # Reuse the existing LLM + memory implementation, but do not
+        # recursively call think_and_respond(). The LLM bridge is the
+        # language cognition provider for this route.
         typo_result = self._normalize_hinglish_typos(user_input)
         retrieval_query = typo_result["normalized"]
-        typos_corrected = typo_result["corrections"]
 
-        # 1. Build Context from FAISS Vector Store + Knowledge Graph
-        mem_start = time.time()
         context = (
             self.build_context(query=retrieval_query, recent_limit=3)
             if hasattr(self, "build_context")
             else {}
         )
-        mem_duration = time.time() - mem_start
-        recent_memories = context.get("recent_experiences", [])
-        relevant_knowledge = context.get("relevant_knowledge", [])
-        graph_relations = context.get("graph_relations", [])
 
-        # 2. Parse Identity Info
+        # Rule capture now runs unconditionally near the top of
+        # think_and_respond() (before routing), so every route -- not
+        # just this LLM one -- captures standing instructions. Only the
+        # read side is needed here.
+        active_rules = []
+        try:
+            active_rules = self._user_rules.get_active_rules()
+        except Exception:
+            pass
+
         bot_name = "JARVIS"
         creator_name = "UK"
+
         if isinstance(identity_profile, dict):
             bot_name = identity_profile.get("name", bot_name)
             creator_name = identity_profile.get("creator", creator_name)
 
-        # 3. Strict Identity System Prompt
-        system_prompt = (
-            f"SYSTEM IDENTITY INSTRUCTIONS (STRICT):\n"
-            f"1. You are {bot_name}, a self-contained cognitive AI organism running locally.\n"
-            f"2. The user talking to you is {creator_name}, your developer and creator.\n"
-            f"3. NEVER swap roles or claim to be {creator_name}.\n"
-            f"4. Communicate naturally, precisely, and conversationally in Hinglish.\n"
-            f"5. Keep responses loyal, calm, and too short.\n"
-            f"6. Dont use emojis in response.\n"
-            f"7. Behave and act alike Marvel iron man's JARVIS and give response savagely and funny.\n"
-            f"8. Always loyal to {creator_name}."
+        # THE ACTUAL FIX (UK's explicit ask: "Brain ko pata hona chahiye
+        # wo kaun hai, sirf identity route nahi"): previously
+        # self.identity_system (JarvisIdentity -- purpose, invariants,
+        # the REAL learned owner name/addressing-preference, live
+        # capabilities) was only ever wired into the narrow native
+        # "identity question" fast path (see _native_reasoner.identity
+        # above). Every OTHER route -- including this LLM route, which
+        # handles the majority of turns -- never read it at all, so the
+        # model only ever saw the two bare hardcoded strings
+        # "JARVIS"/"UK" cli.py passes on every single call, with no
+        # purpose, no real learned name, no capability list. This block
+        # pulls the SAME structured identity data the identity fast path
+        # already uses and folds it into every LLM call, not just
+        # identity-shaped questions.
+        identity_block = None
+        identity_system = getattr(self, "identity_system", None)
+        if identity_system is not None:
+            try:
+                inv = identity_system.invariants()
+                owner = identity_system.owner_profile()
+                current = identity_system.current_self()
+                bot_name = inv.get("name", bot_name)
+                if owner.get("known"):
+                    creator_name = owner["display_name"]
+                identity_block = {
+                    "i_am": inv.get("name"),
+                    "designation": inv.get("designation"),
+                    "role": inv.get("role"),
+                    "purpose": inv.get("purpose"),
+                    "created_by": inv.get("creator"),
+                    "talking_to": owner.get("display_name") or inv.get("creator"),
+                    "talking_to_is_creator": True,
+                    "live_capabilities": current.get("capabilities", [])[:12],
+                    # UK's explicit ask: JARVIS previously had no idea
+                    # whether a turn arrived from the CLI terminal or the
+                    # web browser chat -- `source` was passed all the way
+                    # down to think_and_respond() but only ever used for
+                    # event/learning metadata, never told to the model or
+                    # made answerable. Real, cheap, already-available.
+                    "channel": source,
+                }
+            except Exception:
+                identity_block = None
+
+        # Native direct-answer fast path: a narrow class of "what is my
+        # X" recall questions with an exact stored fact can be answered
+        # without spending an LLM call at all. This is the concrete
+        # "every API call has a cost" behaviour -- an actual skip, not
+        # a policy statement. Anything even slightly ambiguous falls
+        # through to the LLM route below unchanged.
+        # Second chance at the native fast path: the early check above
+        # (step 0) used the raw, non-typo-corrected user_input and a
+        # narrower context. This one runs against the typo-normalized
+        # retrieval query and the fuller LLM-route context, so a fact
+        # that only surfaces after typo correction still gets answered
+        # for free instead of falling through to a real LLM call.
+        direct_answer = try_direct_recall_answer(user_input, context)
+        if direct_answer is not None:
+            self.last_brain_decision = {
+                "mode": "llm",
+                "status": "completed",
+                "answered_by": "native_direct_recall",
+            }
+            response = direct_answer
+            self._record_action_response(
+                mode="llm",
+                status="completed",
+                response=response,
+                action={"answered_by": "native_direct_recall"},
+            )
+            self._trace(user_input, response, route, perception, started, True)
+            return response
+
+        # Structured response brief (see response_brief.py): Brain's own
+        # native reasoning (perception, retrieval, rules) assembles a
+        # small, strictly-typed schema of what's actually true and what
+        # the user asked. The LLM's only job is to phrase ONE reply from
+        # it -- it does not get raw dict dumps of memory objects and it
+        # is explicitly told not to invent facts outside the schema.
+        self_authored_rules = []
+        try:
+            self_authored_rules = get_self_authored_rules(self.memory)
+        except Exception:
+            pass
+        brief = build_response_brief(
+            user_input=user_input,
+            perception=perception,
+            context=context,
+            active_rules=active_rules,
+            self_authored_rules=self_authored_rules,
+            bot_name=bot_name,
+            creator_name=creator_name,
         )
 
-<<<<<<< HEAD
-        # 4. Context Formatting
-        context_prompt = (
-            f"=== RETRIEVED MEMORIES ===\n{recent_memories if recent_memories else 'No previous memory match.'}\n\n"
-            f"=== SEMANTIC KNOWLEDGE ===\n{relevant_knowledge if relevant_knowledge else 'No direct facts found.'}\n\n"
-            f"=== KNOWLEDGE GRAPH EDGES ===\n{graph_relations if graph_relations else 'No graph nodes linked.'}\n\n"
-            f"=== CURRENT USER MESSAGE ===\n{creator_name}: {user_input}\n\n"
-            f"{bot_name}:"
+        # OUTCOME FEEDBACK, part 1/2 (2026-09-11 roadmap Phase 6):
+        # snapshot which real stored facts were actually surfaced to
+        # the LLM THIS turn, so that if UK corrects JARVIS on the
+        # VERY NEXT turn ("galat hai", "wrong", ...), Brain knows
+        # exactly which facts to weaken -- see the correction-
+        # detection block near the top of this method (searches for
+        # detect_correction(user_input) against self.last_turn_fact_ids,
+        # which still holds THIS turn's ids until the line below runs
+        # again next turn). Deliberately captured here (after the
+        # brief that will actually reach the LLM is built), not
+        # earlier from build_context()'s raw retrieval, so this only
+        # reflects facts that were genuinely part of what the LLM saw.
+        try:
+            self.last_turn_fact_ids = [
+                kid for kid in (
+                    getattr(item, "knowledge_id", None) if not isinstance(item, dict) else item.get("knowledge_id")
+                    for item in (context.get("relevant_knowledge") or [])
+                ) if kid
+            ]
+        except Exception:
+            self.last_turn_fact_ids = []
+
+        # Response Data Contract (blueprint section 13 / Rule 08): the
+        # brief must itself be well-formed BEFORE it's allowed to reach
+        # the LLM -- this is what turns "response_brief.py builds a
+        # nice-looking dict" into an actually-enforced organ boundary,
+        # matching the same contract-first discipline every other layer
+        # transition already has (see core/contracts/schemas.py
+        # "response.input"/"response.output").
+        try:
+            brief = validate_input("response", brief)
+        except ContractError as exc:
+            log_event("brain", f"response brief failed its own contract, using it anyway (degraded): {exc}", level="warning")
+
+        system_prompt = (
+            f"You are {bot_name}, a self-contained cognitive AI organism. "
+            f"The user is {creator_name}, your developer and creator -- never "
+            f"swap roles or claim to be {creator_name}. You will be given a "
+            f"structured JSON brief below describing this turn. Follow its "
+            f"instructions_for_llm exactly.\n\n"
+            + (f"YOUR IDENTITY (who you are, real and current, not a persona to improvise):\n"
+               f"{json.dumps(identity_block, ensure_ascii=False)}\n\n" if identity_block else "")
+            + f"BRIEF:\n{json.dumps(brief, ensure_ascii=False)}"
         )
-=======
+
         # EXTENDED THINKING (wired 2026-09-13). The composer toggle used
         # to write its value to sessionStorage where nothing read it, so
         # the Brain button changed colour and did nothing. It now
@@ -1320,31 +1397,37 @@ class Brain(CompanionToolsMixin):
         # of a long, unbounded memory dump. The live question therefore
         # stays here, separate from the brief above.
         context_prompt = f"{creator_name}: {user_input}\n\n{bot_name}:"
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
-        # 5. LLM Inference — ONE call that returns both the reply and a
-        #    memory signal (see llm_bridge.generate_combined). This is
-        #    what replaces the old "reply call + separate fact-extraction
-        #    call" pattern: half the tokens, half the latency, and it
-        #    still keeps Qwen's role strictly to understand/reason/
-        #    respond/generate-signal — it never writes the DB itself.
-        fact: Optional[Dict[str, Any]] = None
-        llm_start = time.time()
         try:
-            combined_fn = getattr(self.llm, "generate_combined", None)
-            if callable(combined_fn):
-                result = combined_fn(
-                    system_prompt=system_prompt, user_input=context_prompt
-                )
-                cleaned_response = str(result.get("response", "")).strip()
-                fact = result.get("memory_signal")
+            # TOOL-CALLING (M2, 2026-09-11): tried BEFORE the plain
+            # generate() path below. See core/orchestration/
+            # tool_registry.py's module docstring for the full design
+            # rationale (cortex-basal-ganglia gating, why this replaced
+            # a regex-routing proposal UK explicitly rejected). Returns
+            # None (falls through unchanged to plain generate()) when
+            # tool-calling isn't usable this turn (offline, no tool
+            # was actually needed and the model preferred plain text,
+            # or the loop failed) -- this is purely additive, nothing
+            # below this block changes.
+            tool_response = None
+            try:
+                from .tool_registry import run_tool_loop
+                # Reset BEFORE attempting -- run_tool_loop() only ever
+                # sets this on paths that actually reach its internal
+                # loop; if generate_with_tools isn't available at all
+                # (offline, no Groq key) it returns None immediately
+                # without touching this, which would otherwise leave
+                # a PREVIOUS turn's trace looking like it happened this
+                # turn in cli.py's "4c. TOOL CALLS" panel / monitor.py.
+                self.last_tool_call_trace = []
+                tool_response = run_tool_loop(self, system_prompt=system_prompt, user_message=user_input)
+            except Exception as exc:
+                log_event("brain", f"tool-calling loop failed, falling back to plain generation: {exc}", level="warning")
+                tool_response = None
+
+            if tool_response:
+                response = tool_response
             else:
-<<<<<<< HEAD
-                # Backward-compatible path for any LLM bridge that only
-                # implements the older generate_response() interface.
-                response = self.llm.generate_response(
-                    system_prompt=system_prompt, user_input=context_prompt
-=======
                 generate = getattr(self.llm, "generate", None)
 
                 if callable(generate):
@@ -1475,17 +1558,23 @@ class Brain(CompanionToolsMixin):
                     "brain",
                     "response claimed a delete/update/verify action that never executed -- substituted an honest reply",
                     level="warning",
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
                 )
-                cleaned_response = (
-                    response.strip() if isinstance(response, str) else str(response)
+                response = action_correction
+                grounding = check_response_grounding(response, brief, relations_extracted_this_turn=0)
+            try:
+                validate_output("response", {
+                    "text": response,
+                    "stayed_within_brief": grounding.stayed_within_brief,
+                    "flagged_unsupported": grounding.flagged_unsupported,
+                })
+            except ContractError as exc:
+                log_event("brain", f"response.output contract violation: {exc}", level="warning")
+            if not grounding.stayed_within_brief:
+                log_event(
+                    "brain",
+                    f"response may contain unsupported content not present in the brief: {grounding.flagged_unsupported}",
+                    level="warning",
                 )
-<<<<<<< HEAD
-                fact = self._extract_fact(user_input, cleaned_response)
-        except Exception as exc:
-            return f"[Brain Thinking Error: {exc}]"
-        llm_duration = time.time() - llm_start
-=======
                 try:
                     self.grounding_violations.append({
                         "user_input": user_input, "response": response,
@@ -1683,90 +1772,29 @@ class Brain(CompanionToolsMixin):
                 )
             else:
                 response = "Mujhe abhi jawab dene mein dikkat aa rahi hai -- kripya thodi der baad try karo."
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
-        if not cleaned_response:
-            cleaned_response = "..."
+            self.last_brain_decision = {
+                "mode": "llm",
+                "status": "failed",
+                "error": str(exc),
+            }
 
-        # 6. Hand the interaction to the learning pipeline — but
-        #    ASYNCHRONOUSLY. The user already has their reply; whether
-        #    this turn becomes persistent knowledge happens in the
-        #    background, in order, without adding latency to the chat.
-        outcome: Dict[str, Any] = {"status": "completed"}
-        if fact is not None:
-            outcome.update(fact)  # adds subject/predicate/value
+            self._record_action_response(
+                mode="llm",
+                status="failed",
+                response=response,
+                error=str(exc),
+            )
 
-        self._enqueue_learning(
-            event_type="USER_CHAT",
-            context={"user_input": user_input},
-            action={"jarvis_response": cleaned_response},
-            outcome=outcome,
-            source=source,
-            importance=0.6,
-        )
-
-        # 7. Update running telemetry + build the structured trace.
-        total_duration = time.time() - turn_start
-        self.total_turns += 1
-        self.total_latency_seconds += total_duration
-        # No real tokenizer wired into every LLM engine uniformly, so
-        # this is a word-count based estimate over what was actually
-        # sent/received this turn -- a real derived number, not a
-        # random placeholder.
-        approx_tokens = len(context_prompt.split()) + len(cleaned_response.split())
-        self.total_tokens_estimate += approx_tokens
-
-        # Rank-based similarity: hybrid_search already returns results
-        # ordered best-first, but doesn't preserve the underlying FAISS
-        # distance through to Brain. Rather than fabricate a precise
-        # score we don't have, expose the real ordering as a
-        # descending confidence band -- honest about what's known
-        # (the rank) vs not (the exact distance).
-        vector_matches = []
-        for idx, item in enumerate(relevant_knowledge[:8]):
-            vector_matches.append({
-                "id": item.get("knowledge_id", f"k{idx}"),
-                "subject": item.get("subject"),
-                "predicate": item.get("predicate"),
-                "value": item.get("value"),
-                "similarity": round(max(0.35, 0.95 - idx * 0.08), 2),
-            })
-
-        graph_edges = []
-        for rel in graph_relations[:12]:
-            if isinstance(rel, dict):
-                graph_edges.append({
-                    "subject": rel.get("subject") or rel.get("source"),
-                    "predicate": rel.get("predicate") or rel.get("relation"),
-                    "target": rel.get("target") or rel.get("value") or rel.get("object"),
-                })
-
-        queue_status = self._learning_queue.status()
-
-        self.last_turn_trace = {
-            "source": source,
-            "query": user_input,
-            "response_preview": cleaned_response[:200],
-            "timings": {
-                "total": total_duration,
-                "memory": mem_duration,
-                "llm": llm_duration,
-            },
-            "memory": {
-                "recent_experiences": len(recent_memories),
-                "relevant_knowledge": len(relevant_knowledge),
-                "graph_relations": len(graph_relations),
-            },
-            "vector_matches": vector_matches,
-            "graph_edges": graph_edges,
-            "typos_corrected": typos_corrected,
-            "memory_signal": fact,
-            "learning_queue": queue_status,
-            "pipeline_success": True,
-            "timestamp": time.time(),
-        }
-
-        return cleaned_response
+            self._trace(
+                user_input,
+                response,
+                route,
+                perception,
+                started,
+                True,
+            )
+            return response
 
     # =============================================================
     # ASYNC LEARNING HAND-OFF
@@ -1801,7 +1829,7 @@ class Brain(CompanionToolsMixin):
 
         if self._learning_queue.is_alive():
             if not self._learning_queue.submit(job):
-                print("[Brain] Learning queue rejected job, running inline as fallback.")
+                log_event("brain", "learning queue rejected job (full); running inline as fallback.", level="warning")
                 self._run_learning_job(job)
         else:
             # Queue never started (e.g. Brain used standalone/tests) —
@@ -1811,6 +1839,7 @@ class Brain(CompanionToolsMixin):
     def _run_learning_job(self, job: Dict[str, Any]) -> None:
         """Executed on the background learning-queue thread (or inline
         as a fallback). Never lets a learning failure reach the user."""
+        self._set_learning_active(True)
         try:
             self.process_experience(
                 event_type=job["event_type"],
@@ -1823,70 +1852,23 @@ class Brain(CompanionToolsMixin):
                 auto_accept=job["auto_accept"],
             )
         except Exception as exp_err:
-            print(f"[Brain Pipeline Warning] Could not process experience: {exp_err}")
+            log_event("brain", f"could not process experience: {exp_err}", level="error")
+        finally:
+            self._set_learning_active(False)
 
-    # =============================================================
-    # FACT EXTRACTION (turns free chat into a structured triple)
-    # =============================================================
-
-    _FACT_EXTRACTION_PROMPT = (
-        "You are an expert fact extractor for a personal AI companion. "
-        "Extract ONE factual statement from the conversation turn if one exists. "
-        "The user often speaks in Hinglish with minor spelling typos (e.g. 'nan' instead of 'naam'). "
-        "Correct typos automatically and extract clear subject, predicate, and value. "
-        "Return ONLY a raw JSON object. If no clear fact exists, return exactly: "
-        '{"has_fact": false}\n\n'
-        "Examples:\n"
-        'User: "mera ex ka nan devyana h"\n'
-        'Output: {"has_fact": true, "subject": "user_ex", "predicate": "name", "value": "Devyana"}\n\n'
-        "subject/predicate should be short lowercase phrases."      
-    )
-
-    def _extract_fact(self, user_input: str, jarvis_response: str) -> Optional[Dict[str, Any]]:
-        if self.llm is None:
-            return None
-
-        # Thoda sa gap dein taaki key rotator next active key pick kar sake
-        import time
-        time.sleep(1.0)
-
-        raw = ""
+    def _set_learning_active(self, active: bool) -> None:
+        """Best-effort mirror of live learning-worker activity into the
+        state bus, so monitor.py can show LEARNING as distinct from the
+        synchronous IDLE/PERCEIVING/INDEXING/EXECUTING turn pipeline --
+        the background worker legitimately overlaps with the next turn."""
         try:
-            raw = self.llm.generate_response(
-                system_prompt=getattr(self, "_FACT_EXTRACTION_PROMPT", "Extract facts as JSON with subject, predicate, value."),
-                user_input=f"User said: {user_input}\nAssistant replied: {jarvis_response}",
-                max_tokens=500,
-                temperature=0.0,
-            )
-        except Exception as e:
-            print(f"[EXTRACT ERROR WITH KEYS]: {e}")
+            from ..runtime.state_bus import get_state_bus
 
-        print(f"[DEBUG ROTATED KEY FACT OUTPUT]: {repr(raw)}")
-
-        if not raw or not isinstance(raw, str) or not raw.strip():
-            return None
-
-        cleaned = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.MULTILINE).strip()
-
-        try:
-            data = json.loads(cleaned)
+            bus = get_state_bus(create=False)
+            if bus is not None:
+                bus.update_learning(status=self._learning_queue.status(), active=active)
         except Exception:
-            return None
-
-        if not isinstance(data, dict) or not data.get("has_fact"):
-            return None
-
-        subject = str(data.get("subject", "")).strip()
-        predicate = str(data.get("predicate", "")).strip()
-        value = data.get("value")
-
-        if not subject or not predicate or value in (None, ""):
-            return None
-
-        print(f"[SUCCESS EXTRACTED]: {subject} -> {predicate} -> {value}")
-        return {"subject": subject, "predicate": predicate, "value": value}
-
-
+            pass
 
     # =============================================================
     # PROCESS EXPERIENCE
@@ -2022,7 +2004,7 @@ class Brain(CompanionToolsMixin):
                         accept_method(knowledge_id)
                         accepted = True
                     except Exception as accept_err:
-                        print(f"[Brain Pipeline Warning] Could not auto-accept knowledge: {accept_err}")
+                        log_event("brain", f"could not auto-accept knowledge: {accept_err}", level="warning")
 
             learning_result = {
                 "success": True,
@@ -2059,8 +2041,6 @@ class Brain(CompanionToolsMixin):
             "timestamp": time.time(),
         }
 
-<<<<<<< HEAD
-=======
         # OUTCOME FEEDBACK positive side (2026-09-11 roadmap Phase 6):
         # when SelfEvaluator judges the WHOLE turn a success, lightly
         # reinforce the facts that were actually surfaced to the LLM
@@ -2260,7 +2240,6 @@ class Brain(CompanionToolsMixin):
         except Exception as exc:
             log_event("brain", f"post-response reasoning failed: {exc}", level="warning")
 
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
         self._finish_cycle(result)
         self._emit("BRAIN_EXPERIENCE_PROCESSED", result)
 
@@ -2363,8 +2342,6 @@ class Brain(CompanionToolsMixin):
         return result
 
     # =============================================================
-<<<<<<< HEAD
-=======
     # SELF-AUTHORED RULES -- propose (automatic, see the post-response
     # reasoning block above) / confirm / reject (UK only). A self-
     # authored rule never reaches get_self_authored_rules() (and
@@ -2937,7 +2914,6 @@ class Brain(CompanionToolsMixin):
             return {"available": False, "error": str(exc)}
 
     # =============================================================
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
     # CONSOLIDATE
     # =============================================================
 
@@ -2991,7 +2967,21 @@ class Brain(CompanionToolsMixin):
     def apply_evolution(self, proposal_id: str) -> Dict[str, Any]:
         if self.evolution is None:
             raise RuntimeError("EvolutionEngine is not connected.")
-        return self.evolution.apply(proposal_id)
+        result = self.evolution.apply(proposal_id)
+        # This is the ONE place a proposal becomes a real, applied change
+        # -- so it's the correct place to grow JARVIS's own HISTORY
+        # (see core/identity/jarvis_identity.py). Best-effort: identity
+        # tracking must never block an evolution apply from succeeding.
+        identity_system = getattr(self, "identity_system", None)
+        if identity_system is not None:
+            try:
+                identity_system.record_adaptation(
+                    description=f"Applied evolution proposal {proposal_id}",
+                    evidence={"proposal_id": proposal_id, "result": result},
+                )
+            except Exception:
+                pass
+        return result
 
     # =============================================================
     # MEMORY CONTEXT (FAISS + Knowledge Graph retrieval)
@@ -3011,18 +3001,38 @@ class Brain(CompanionToolsMixin):
         MemoryManager so it can be upgraded independently.
         """
         if self.memory is None:
-            return {
+            empty_context = {
                 "recent_experiences": [],
                 "relevant_knowledge": [],
                 "graph_relations": [],
             }
+            self.last_context = empty_context
+            return empty_context
 
-        return self.memory.build_context(
+        cache_key = (query, subject, recent_limit, knowledge_limit)
+        cached = self._context_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        # Only the real cache-miss path does actual FAISS/graph work, so
+        # this is the genuine INDEXING stage of the pipeline -- a cache
+        # hit is free and shouldn't flicker the monitor's lifecycle state.
+        self._emit("CONTEXT_RETRIEVAL_STARTED", {"query": query, "subject": subject})
+        result = self.memory.build_context(
             query=query,
             subject=subject,
             recent_limit=recent_limit,
             knowledge_limit=knowledge_limit,
         )
+        self._context_cache[cache_key] = result
+        self.last_context = result
+        self._emit("CONTEXT_RETRIEVAL_COMPLETED", {
+            "query": query,
+            "recent_experiences": len(result.get("recent_experiences") or []),
+            "relevant_knowledge": len(result.get("relevant_knowledge") or []),
+            "graph_relations": len(result.get("graph_relations") or []),
+        })
+        return result
 
     # =============================================================
     # PLAN / GOALS
@@ -3095,6 +3105,11 @@ class Brain(CompanionToolsMixin):
             "learning_status": learning_status,
             "consolidator_status": consolidator_status,
             "async_learning_queue": self._learning_queue.status(),
+            # LLM Dependency Metrics (blueprint section 43) -- the
+            # measurable answer to "is JARVIS actually needing the LLM
+            # less over time", not a description of intent.
+            "dependency_metrics": self.dependency_metrics.as_dict(),
+            "contradiction_rate": contradiction_rate(self.memory),
         }
 
     def get_last_result(self) -> Optional[Dict[str, Any]]:
@@ -3132,8 +3147,6 @@ class Brain(CompanionToolsMixin):
         self.last_cycle_at = time.time()
         self.last_result = result
 
-<<<<<<< HEAD
-=======
     def set_llm_bridge(self, llm_bridge: Any) -> None:
         self.llm = llm_bridge
         if hasattr(self, "pattern_synthesizer") and self.pattern_synthesizer is not None:
@@ -3803,7 +3816,6 @@ class Brain(CompanionToolsMixin):
             return "JARVIS Core ONLINE. LLM unavailable; operating in degraded cognitive mode."
         return "JARVIS received the input, but no language cognition provider is currently available. Core organism remains active."
 
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
     def _emit(self, event_name: str, payload: Any = None) -> None:
         if self.events is None:
             return

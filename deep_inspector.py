@@ -1,8 +1,14 @@
 # -*- coding: utf-8 -*-
+"""JARVIS deep runtime inspector.
+
+Renders one real Brain turn and the validator events actually observed during
+that turn. It never performs retrieval or cognition itself.
+"""
 import os
 import sys
-import time
 import sqlite3
+from typing import Any
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.tree import Tree
@@ -16,31 +22,188 @@ from core.orchestration.llm_bridge import LlamaCppBridge
 
 console = Console()
 
+
+def _d(value: Any) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _items(value: Any) -> list:
+    return list(value) if isinstance(value, (list, tuple)) else []
+
+
+def _short(value: Any, limit: int = 900) -> str:
+    text = str(value)
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _contract_state(brain: Any, name: str) -> tuple[str, dict]:
+    contracts = _d(getattr(brain, "last_contracts", None))
+    payload = contracts.get(name)
+    events = _items(getattr(brain, "last_runtime_contract_trace", None))
+    event = next((e for e in reversed(events) if _d(e).get("schema") == name), None)
+    status = _d(event).get("status") if event else None
+    if status == "PASS" and isinstance(payload, dict):
+        return "PASS", payload
+    if status == "FAIL":
+        return "FAIL", payload if isinstance(payload, dict) else {}
+    if isinstance(payload, dict):
+        return "OBSERVED", payload
+    return "NOT OBSERVED", {}
+
+
+def _boundary(tree: Tree, brain: Any, output_name: str, input_name: str, label: str):
+    node = tree.add(f"[bold]{label}[/bold]")
+    out_status, out_payload = _contract_state(brain, output_name)
+    in_status, in_payload = _contract_state(brain, input_name)
+    node.add(f"{output_name}: {out_status}")
+    if out_payload:
+        node.add(f"output: {_short(out_payload)}")
+    node.add(f"{input_name}: {in_status}")
+    if in_payload:
+        node.add(f"input: {_short(in_payload)}")
+    return node
+
+
+def _runtime_contract_trace(brain: Any, trace: dict, response: Any) -> dict:
+    router = _d(getattr(brain, "last_router_output", None))
+    decision = _d(getattr(brain, "last_brain_decision", None))
+    perception = _d(getattr(brain, "last_perception", None))
+    semantic = _d(perception.get("semantic_understanding"))
+    provenance = _d(semantic.get("provenance"))
+    route = router.get("route") or _d(getattr(brain, "last_cognitive_decision", None)).get("mode")
+    execution = decision.get("mode")
+    fallback_allowed = router.get("fallback_allowed")
+    consistency = "PASS"
+    reason = "Router route and Brain execution are aligned."
+    if route and execution and route != execution and fallback_allowed is False:
+        consistency = "FAIL"
+        reason = f"Router selected '{route}' but Brain executed '{execution}' while fallback is forbidden."
+    elif route and execution and route != execution:
+        consistency = "REVIEW"
+        reason = f"Router selected '{route}' and Brain executed '{execution}'; router permits fallback."
+
+    validation_events = _items(getattr(brain, "last_runtime_contract_trace", None))
+    return {
+        "contracts": dict(getattr(brain, "last_contracts", {}) or {}),
+        "validation_events": validation_events,
+        "semantic_provenance": {
+            "source": provenance.get("source", "unknown"),
+            "fallback_used": provenance.get("source") == "llm_fallback",
+        },
+        "route_consistency": {
+            "router_route": route,
+            "brain_execution": execution,
+            "fallback_allowed": fallback_allowed,
+            "status": consistency,
+            "reason": reason,
+        },
+        "learning_state": {
+            "experience_input": getattr(brain, "last_experience_input", None),
+            "experience_output": getattr(brain, "last_experience_output", None),
+            "learning_input": getattr(brain, "last_learning_input", None),
+            "learning_output": getattr(brain, "last_learning_output", None),
+            "self_evaluation_input": getattr(brain, "last_self_evaluation_input", None),
+            "self_evaluation_output": getattr(brain, "last_self_evaluation_output", None),
+            "memory_input": getattr(brain, "last_memory_input", None),
+            "memory_output": getattr(brain, "last_memory_output", None),
+        },
+        "response": response,
+        "trace_source": trace.get("source"),
+        "llm_budget": _d(trace.get("llm_budget")),
+    }
+
+
+def render_query_trace(brain, trace=None, *, source="cli", query=None, response=None):
+    """Render one real turn, live validator events, provenance and authority."""
+    trace = _d(trace) or _d(getattr(brain, "last_turn_trace", None))
+    query = query if query is not None else trace.get("query", trace.get("user_input", ""))
+    response = response if response is not None else trace.get("response_preview", trace.get("response", ""))
+    runtime = _runtime_contract_trace(brain, trace, response)
+
+    tree = Tree(f"[bold cyan]JARVIS DEEP RUNTIME TRACE[/bold cyan] [dim](source={source})[/dim]")
+    root = tree.add("[bold blue]TURN[/bold blue]")
+    root.add(f"query: {_short(query)}")
+    root.add(f"pipeline_success: {trace.get('pipeline_success', False)}")
+    root.add(f"trace_timestamp: {trace.get('timestamp', 'unknown')}")
+
+    stages = tree.add("[bold cyan]LAYER → LAYER CONTRACT EXECUTION[/bold cyan]")
+    _boundary(stages, brain, "perception.output", "semantic_understanding.input", "Perception → Semantic Understanding")
+    _boundary(stages, brain, "semantic_understanding.output", "cognition.input", "Semantic Understanding → Cognition")
+    _boundary(stages, brain, "cognition.output", "cognitive_router.input", "Cognition → Cognitive Router")
+    _boundary(stages, brain, "cognitive_router.output", "brain.input", "Cognitive Router → Brain")
+    _boundary(stages, brain, "brain.output", "experience.input", "Brain → Experience")
+    _boundary(stages, brain, "experience.output", "learning.input", "Experience → Learning")
+    _boundary(stages, brain, "learning.output", "self_evaluation.input", "Learning → Self-Evaluation")
+    _boundary(stages, brain, "self_evaluation.output", "evolution.input", "Self-Evaluation → Evolution")
+    _boundary(stages, brain, "evolution.output", "memory.evolution.input", "Evolution → Memory")
+    _boundary(stages, brain, "memory.evolution.output", "cognition.input", "Memory → Next Cycle Context")
+
+    audit = tree.add("[bold cyan]CENTRAL VALIDATOR AUDIT[/bold cyan]")
+    audit.add(f"events_observed: {len(runtime['validation_events'])}")
+    for event in runtime["validation_events"]:
+        audit.add(f"{event.get('schema')}: {event.get('status')}")
+
+    sem = tree.add("[bold magenta]SEMANTIC PROVENANCE[/bold magenta]")
+    sem.add(f"source: {runtime['semantic_provenance']['source']}")
+    sem.add(f"llm_fallback_used: {runtime['semantic_provenance']['fallback_used']}")
+    semantic = _d(getattr(brain, "last_perception", None)).get("semantic_understanding")
+    sem.add(f"semantic_result_present: {isinstance(semantic, dict) and bool(semantic)}")
+
+    route = tree.add("[bold magenta]ROUTER → BRAIN EXECUTION AUTHORITY[/bold magenta]")
+    rc = runtime["route_consistency"]
+    route.add(f"router_route: {rc['router_route']}")
+    route.add(f"brain_execution: {rc['brain_execution']}")
+    route.add(f"fallback_allowed: {rc['fallback_allowed']}")
+    route.add(f"status: {rc['status']}")
+    route.add(f"reason: {_short(rc['reason'], 1400)}")
+
+    budget = tree.add("[bold yellow]LLM BUDGET[/bold yellow]")
+    for key, value in runtime["llm_budget"].items():
+        budget.add(f"{key}: {value}")
+
+    learning = tree.add("[bold yellow]EXPERIENCE → LEARNING → SELF-EVALUATION → EVOLUTION → MEMORY[/bold yellow]")
+    for key, value in runtime["learning_state"].items():
+        learning.add(f"{key}: {_short(value)}")
+
+    retrieval = tree.add("[bold blue]RETRIEVAL EVIDENCE[/bold blue]")
+    context = _d(trace.get("memory_context"))
+    for key in ("recent_experiences", "relevant_knowledge", "graph_relations"):
+        retrieval.add(f"{key}: {len(_items(context.get(key)))}")
+    retrieval.add(f"vector_matches: {len(_items(trace.get('vector_matches')))}")
+    retrieval.add(f"graph_edges: {len(_items(trace.get('graph_edges')))}")
+    retrieval.add(f"typos_corrected: {_short(trace.get('typos_corrected', []))}")
+
+    action = tree.add("[bold green]FINAL RESPONSE[/bold green]")
+    action.add(_short(response, 1800))
+
+    metrics = tree.add("[bold white]REAL TURN METRICS[/bold white]")
+    for key, value in _d(trace.get("timings")).items():
+        metrics.add(f"{key}: {value}")
+    metrics.add(f"total_turns: {getattr(brain, 'total_turns', 'unknown')}")
+    metrics.add(f"total_latency_seconds: {getattr(brain, 'total_latency_seconds', 'unknown')}")
+    metrics.add(f"total_tokens_estimate: {getattr(brain, 'total_tokens_estimate', 'unknown')}")
+
+    console.print(Panel(tree, title="[bold white]DEEP INSPECTION[/bold white]", border_style="cyan"))
+
+
 def search_sqlite_knowledge(query_text, db_path="database/knowledge_graph.db"):
-    """Directly queries SQLite to audit matching Subject-Predicate-Object facts."""
     if not os.path.exists(db_path):
         db_path = "database/jarvis.db"
     if not os.path.exists(db_path):
         return []
     try:
         conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        keywords = [kw for kw in query_text.split() if len(kw) > 2]
+        cur = conn.cursor()
+        keywords = [x for x in query_text.split() if len(x) > 2]
         if not keywords:
-            conn.close()
-            return []
-        
-        query_conditions = " OR ".join(["subject LIKE ? OR predicate LIKE ? OR value LIKE ?" for _ in keywords])
-        params = []
-        for kw in keywords:
-            params.extend([f"%{kw}%", f"%{kw}%", f"%{kw}%"])
-            
-        cursor.execute(f"SELECT subject, predicate, value FROM knowledge WHERE {query_conditions} LIMIT 5;", params)
-        rows = cursor.fetchall()
-        conn.close()
-        return rows
+            conn.close(); return []
+        cond = " OR ".join(["subject LIKE ? OR predicate LIKE ? OR value LIKE ?" for _ in keywords])
+        params = [p for x in keywords for p in (f"%{x}%", f"%{x}%", f"%{x}%")]
+        cur.execute(f"SELECT subject, predicate, value FROM knowledge WHERE {cond} LIMIT 5", params)
+        rows = cur.fetchall(); conn.close(); return rows
     except Exception:
         return []
+
 
 def get_latest_knowledge_rows(db_path="database/knowledge_graph.db", limit=2):
     if not os.path.exists(db_path):
@@ -48,163 +211,43 @@ def get_latest_knowledge_rows(db_path="database/knowledge_graph.db", limit=2):
     if not os.path.exists(db_path):
         return []
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = [t[0] for t in cursor.fetchall()]
-        target_table = "knowledge" if "knowledge" in tables else (tables[0] if tables else None)
-        if not target_table:
-            conn.close()
-            return []
-        cursor.execute(f"SELECT subject, predicate, value, created_at FROM {target_table} ORDER BY rowid DESC LIMIT ?;", (limit,))
-        rows = cursor.fetchall()
-        conn.close()
-        return rows
+        conn = sqlite3.connect(db_path); cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [x[0] for x in cur.fetchall()]
+        table = "knowledge" if "knowledge" in tables else (tables[0] if tables else None)
+        if not table:
+            conn.close(); return []
+        cur.execute(f"SELECT subject, predicate, value, created_at FROM {table} ORDER BY rowid DESC LIMIT ?", (limit,))
+        rows = cur.fetchall(); conn.close(); return rows
     except Exception:
         return []
 
-def run_inspector():
-    console.print(Panel.fit(
-        "[bold cyan]JARVIS LIVE CONTINUOUS PIPELINE INSPECTOR[/bold cyan]\n"
-        "[dim]Active queue tracking, SQLite keyword retrieval, and commit audit enabled.[/dim]",
-        border_style="cyan"
-    ))
 
-    console.print("\n[dim]⚡ Initializing Micro-Organism Environment...[/dim]")
+def run_inspector():
+    console.print(Panel.fit("[bold cyan]JARVIS LIVE CONTINUOUS PIPELINE INSPECTOR[/bold cyan]", border_style="cyan"))
+    jarvis = None
     try:
         jarvis = start_jarvis(heartbeat_interval=2.0, idle_threshold=10.0)
-    except Exception as e:
-        console.print(f"[bold red]❌ Failed to boot Jarvis organism: {e}[/bold red]")
-        return
-
-    brain = jarvis.get_organ("brain")
-    if not brain:
-        console.print("[bold red]❌ Critical Fault: 'brain' organ missing.[/bold red]")
-        stop_jarvis(jarvis)
-        return
-
-    # EXPLICITLY START THE BACKGROUND LEARNING QUEUE
-    if hasattr(brain, "_learning_queue") and brain._learning_queue:
-        try:
-            brain._learning_queue.start()
-            console.print("[green]✔ Async Learning Queue Daemon Started Successfully.[/green]")
-        except Exception as q_err:
-            console.print(f"[yellow]⚠ Queue Start Warning: {q_err}[/yellow]")
-
-    if not getattr(brain, "llm", None):
-        try:
-            brain.llm = LlamaCppBridge(
-                model_filename="qwen2.5-3b-instruct-q4_k_m.gguf",
-                n_threads=4,
-                n_ctx=4096
-            )
-        except Exception as llm_err:
-            console.print(f"[yellow]⚠ LLM Bridge Warning: {llm_err}[/yellow]")
-
-    console.print("[bold green]✔ Inspector Ready. Type your query below (Type 'exit' to quit).[/bold green]\n")
-
-    try:
+        brain = jarvis.get_organ("brain")
+        if not brain:
+            console.print("[bold red]Brain organ missing.[/bold red]"); return
+        if getattr(brain, "_learning_queue", None):
+            try: brain._learning_queue.start()
+            except Exception: pass
+        if not getattr(brain, "llm", None):
+            try:
+                brain.llm = LlamaCppBridge()  # model choice is LOCKED in config/models.json
+            except Exception: pass
         while True:
-            try:
-                user_query = console.input("[bold cyan]UK (Inspect) > [/bold cyan]").strip()
-            except (KeyboardInterrupt, EOFError):
-                console.print("\n[bold red]Interrupted by user.[/bold red]")
-                break
-
-            if not user_query:
-                continue
-
-            if user_query.lower() in ["exit", "quit", "q"]:
-                console.print("[bold yellow]Closing inspector session...[/bold yellow]")
-                break
-
-            db_before = get_latest_knowledge_rows(limit=2)
-            tree = Tree(f"[bold magenta]🔬 TRACE MAP: '{user_query}'[/bold magenta]")
-
-            # STAGE 1: Event Ingestion
-            try:
-                jarvis.receive_event("USER_INPUT", {"text": user_query}, source="deep_inspector")
-                s1 = tree.add("[bold yellow]Stage 1: Event Ingestion (EventBus)[/bold yellow]")
-                s1.add("Status: [green]SUCCESS[/green] | Event published.")
-            except Exception as e:
-                tree.add(f"[bold red]Stage 1 Error:[/bold red] {e}")
-
-            # STAGE 2: Memory & Knowledge Retrieval
-            t_mem = time.time()
-            context = {}
-            try:
-                if hasattr(brain, "build_context"):
-                    context = brain.build_context(query=user_query, recent_limit=3)
-                
-                recent_frames = context.get("recent_experiences", [])
-                sql_matches = search_sqlite_knowledge(user_query)
-                graph_relations = context.get("graph_relations", [])
-
-                s2 = tree.add(f"[bold blue]Stage 2: Semantic Memory & Knowledge Retrieval[/bold blue] [dim]({(time.time()-t_mem)*1000:.2f} ms)[/dim]")
-                s2.add(f"FAISS Vector Frames Retrieved: [cyan]{len(recent_frames)}[/cyan]")
-                s2.add(f"SQLite Knowledge Facts Retrieved: [cyan]{len(sql_matches)}[/cyan]")
-                for sf in sql_matches:
-                    s2.add(f"  └─ Match ➔ [yellow]Subject:[/yellow] {sf[0]} | [cyan]Predicate:[/cyan] {sf[1]} | [green]Value:[/green] {sf[2]}")
-                s2.add(f"NetworkX Graph Relations: [cyan]{len(graph_relations)}[/cyan]")
-            except Exception as e:
-                tree.add(f"[bold red]Stage 2 Error:[/bold red] {e}")
-
-            # STAGE 3: Neural Inference
-            t_llm = time.time()
-            reply = ""
-            try:
-                identity_profile = {
-                    "name": "JARVIS",
-                    "creator": "UK",
-                    "nature": "Modular Cognitive Organism",
-                    "instruction": "Respond accurately in Hinglish directly as JARVIS. User is UK, your creator."
-                }
-                
-                s3 = tree.add("[bold cyan]Stage 3: LLM Synthesis & Neural Inference[/bold cyan]")
-                reply = brain.think_and_respond(user_query, identity_profile=identity_profile, source="deep_inspector")
-                llm_dur = time.time() - t_llm
-                s3.add(f"Inference Latency: [green]{llm_dur:.3f} s[/green]")
-            except Exception as e:
-                reply = f"[Error: {e}]"
-                tree.add(f"[bold red]Stage 3 Error:[/bold red] {e}")
-
-            # STAGE 4: Async Learning Queue Telemetry
-            try:
-                s4 = tree.add("[bold green]Stage 4: Asynchronous Learning Queue & Background Worker[/bold green]")
-                queue_stats = {}
-                if hasattr(brain, "status"):
-                    try:
-                        queue_stats = brain.status().get("async_learning_queue", {})
-                    except Exception:
-                        pass
-                
-                q_alive = queue_stats.get("alive", False)
-                s4.add(f"Background Daemon Thread State: [bold cyan]{'ACTIVE' if q_alive else 'INACTIVE'}[/bold cyan]")
-                s4.add(f"Queue Telemetry ➔ Pending: [yellow]{queue_stats.get('pending', 0)}[/yellow] | Processed: [green]{queue_stats.get('processed', 0)}[/green] | Failed: [red]{queue_stats.get('failed', 0)}[/red]")
-            except Exception as e:
-                tree.add(f"[bold red]Stage 4 Error:[/bold red] {e}")
-
-            time.sleep(0.8)
-
-            # STAGE 5: Database Commit Audit
-            db_after = get_latest_knowledge_rows(limit=2)
-            s5 = tree.add("[bold magenta]Stage 5: SQLite Database Commit Audit[/bold magenta]")
-            if db_after != db_before:
-                s5.add("[bold green]✔ NEW TRIPLES COMMITTED TO DATABASE DETECTED![/bold green]")
-                for row in db_after:
-                    s5.add(f"  └─ [yellow]Subject:[/yellow] {row[0]} | [cyan]Predicate:[/cyan] {row[1]} | [green]Value:[/green] {row[2]}")
-            else:
-                s5.add("[dim]No new SPO triples committed in this turn.[/dim]")
-
-            # Render output panels
-            console.print("\n")
-            console.print(Panel(tree, title="[bold white]Live Execution Trace Breakdown[/bold white]", border_style="cyan"))
-            console.print(Panel(f"[white]{reply}[/white]", title="[bold green]JARVIS Response[/bold green]", border_style="green"))
-            console.print("\n" + "─" * 65 + "\n")
-
+            query = console.input("[bold cyan]UK (Inspect) > [/bold cyan]").strip()
+            if query.lower() in {"exit", "quit", "q"}: break
+            if not query: continue
+            reply = brain.think_and_respond(query, identity_profile={"name":"JARVIS","creator":"UK","nature":"Modular Cognitive Organism"}, source="deep_inspector")
+            render_query_trace(brain, getattr(brain, "last_turn_trace", None), source="deep_inspector", query=query, response=reply)
     finally:
-        stop_jarvis(jarvis)
-        console.print("[dim]Inspector closed cleanly.[/dim]")
+        try: stop_jarvis(jarvis)
+        except Exception: pass
+
 
 if __name__ == "__main__":
     run_inspector()

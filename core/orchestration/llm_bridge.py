@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import socket
 import time
 from typing import Optional, List, Dict, Any
@@ -12,7 +11,6 @@ try:
 except ImportError:
     requests = None
 
-# Explicitly load .env relative to project root
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 
@@ -27,103 +25,98 @@ try:
 except ImportError:
     Llama = None
 
+try:
+    from ..runtime.log import log_event
+except ImportError:  # pragma: no cover - defensive, keeps this module standalone-importable
+    def log_event(tag: str, message: str, level: str = "info") -> None:
+        pass
+
+
+class CognitiveBudgetExceeded(RuntimeError):
+    """Raised when one runtime turn exceeds its configured LLM budget."""
+
 
 class CognitiveBudgeter:
-    """
-    Biological Cognitive Working Memory & Dynamic Token Budgeter.
-    Prevents context window overflow dynamically without hardcoded limits.
-    """
-    def __init__(self, max_context_tokens: int = 4096):
-        self.max_context_tokens = max_context_tokens
+    """Hard working-memory/context budgeter for every LLM backend."""
+    def __init__(self, max_context_tokens: int = 4096, safety_tokens: int = 128):
+        self.max_context_tokens = max(256, int(max_context_tokens))
+        self.safety_tokens = max(0, int(safety_tokens))
 
     @staticmethod
     def estimate_tokens(text: str) -> int:
-        """Rough token estimation (Word count * 1.3 + safety margin)."""
         if not text:
             return 0
         return int(len(text.split()) * 1.3) + 4
 
-    def optimize_payload(
-        self, system_prompt: str, user_input: str, max_tokens: int = 512
-    ) -> tuple[str, str]:
-        """
-        Calculates token load dynamically. If system prompt/facts exceed context window capacity,
-        it prunes facts from bottom up to avoid Llama model crash.
-        """
-        budget = self.max_context_tokens - max_tokens - 128  # Safety margin buffer
-        
-        sys_tokens = self.estimate_tokens(system_prompt)
-        usr_tokens = self.estimate_tokens(user_input)
-        
-        if (sys_tokens + usr_tokens) <= budget:
-            return system_prompt, user_input
+    @staticmethod
+    def _trim_to_tokens(text: str, token_budget: int) -> str:
+        if not text or token_budget <= 0:
+            return ""
+        words = text.split()
+        if not words:
+            return ""
+        marker = "\n[context truncated by 4096-token budget]"
 
-        # Dynamic System Prompt Pruning (Line by line memory trimming)
-        lines = system_prompt.split("\n")
-        trimmed_lines = []
-        current_tokens = usr_tokens
+        def fits(candidate: str) -> bool:
+            return CognitiveBudgeter.estimate_tokens(candidate) <= token_budget
 
-        for line in lines:
-            line_tokens = self.estimate_tokens(line)
-            if current_tokens + line_tokens <= budget:
-                trimmed_lines.append(line)
-                current_tokens += line_tokens
+        if fits(text):
+            return text
+        lo, hi = 0, len(words)
+        best = ""
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            candidate = " ".join(words[:mid]) + marker
+            if fits(candidate):
+                best = candidate
+                lo = mid + 1
             else:
-                break
+                hi = mid - 1
+        return best
 
-        optimized_system_prompt = "\n".join(trimmed_lines)
-        return optimized_system_prompt, user_input
+    def optimize_payload(self, system_prompt: str, user_input: str, max_tokens: int = 512) -> tuple[str, str]:
+        output_budget = max(1, int(max_tokens))
+        input_budget = self.max_context_tokens - output_budget - self.safety_tokens
+        if input_budget <= 0:
+            raise CognitiveBudgetExceeded("No input context budget remains for this LLM call")
+        sys_tokens = self.estimate_tokens(system_prompt)
+        usr_budget = max(1, input_budget - min(sys_tokens, input_budget // 2))
+        bounded_user = self._trim_to_tokens(user_input, usr_budget)
+        remaining_for_system = max(0, input_budget - self.estimate_tokens(bounded_user))
+        bounded_system = self._trim_to_tokens(system_prompt, remaining_for_system)
+        total = self.estimate_tokens(bounded_system) + self.estimate_tokens(bounded_user)
+        while total > input_budget and bounded_user:
+            bounded_user = " ".join(bounded_user.split()[:-1])
+            total = self.estimate_tokens(bounded_system) + self.estimate_tokens(bounded_user)
+        while total > input_budget and bounded_system:
+            bounded_system = " ".join(bounded_system.split()[:-1])
+            total = self.estimate_tokens(bounded_system) + self.estimate_tokens(bounded_user)
+        if total > input_budget:
+            raise CognitiveBudgetExceeded(f"Unable to fit LLM input within {input_budget} tokens")
+        return bounded_system, bounded_user
 
 
 class LlamaCppEngine:
-    """
-    Offline local LLM Engine using llama-cpp-python.
-    """
-    def __init__(
-        self,
-        model_filename: str = "qwen2.5-3b-instruct-q4_k_m.gguf",
-        n_ctx: int = 4096,  # ✅ Default updated to 4096
-        n_threads: int = 4,
-    ):
+    def __init__(self, model_filename: str = "qwen2.5-1.5b-instruct-q4_k_m.gguf", subdir: str = "Offline_LLM", n_ctx: int = 2048, n_threads: int = 2):
         if Llama is None:
             raise ImportError("llama-cpp-python is not installed.")
-
-        model_path = os.path.join(BASE_DIR, "models", model_filename)
-
+        model_path = os.path.join(BASE_DIR, "models", subdir, model_filename)
         if not os.path.exists(model_path):
             raise FileNotFoundError(
-                f"Model file not found at: {model_path}. Place the GGUF file in models/"
+                f"Model file not found at: {model_path}. Run download.sh, or place the GGUF "
+                f"file at models/{subdir}/{model_filename} manually."
             )
-
-        print(f"[JARVIS LLM] Loading offline model from {model_path} ...")
-        self.llm = Llama(
-            model_path=model_path,
-            n_ctx=n_ctx,
-            n_threads=n_threads,
-            # use_mlock pins pages in RAM (fights the OS out of swapping
-            # them out); on an 8GB Android device that's a liability, not
-            # a feature, so it stays off unless explicitly requested.
-            use_mlock=False,
-            # mmap keeps the resident set small until pages are actually
-            # touched -- important headroom on 8GB RAM devices.
-            use_mmap=True,
-            verbose=False,
-        )
-        self.budgeter = CognitiveBudgeter(max_context_tokens=n_ctx)
-        print(f"[JARVIS LLM] Offline model loaded (n_ctx={n_ctx}).")
+        log_event("llm_bridge", f"loading local model from {model_path} ...")
+        safe_threads = max(1, min(int(n_threads), 2))
+        safe_ctx = max(1024, min(int(n_ctx), 2048))
+        self.llm = Llama(model_path=model_path, n_ctx=safe_ctx, n_threads=safe_threads, use_mlock=False, use_mmap=True, verbose=False)
+        self.budgeter = CognitiveBudgeter(max_context_tokens=safe_ctx)
+        log_event("llm_bridge", f"local model loaded from models/{subdir}/ (n_ctx={safe_ctx}, n_threads={safe_threads}).")
 
     def generate(self, system_prompt: str, user_input: str, max_tokens: int = 512, temperature: float = 0.7) -> str:
-        # ✅ Apply Dynamic Cognitive Budgeting before model inference
-        opt_system, opt_user = self.budgeter.optimize_payload(
-            system_prompt, user_input, max_tokens=max_tokens
-        )
-
-        messages = [
-            {"role": "system", "content": opt_system},
-            {"role": "user", "content": opt_user},
-        ]
+        opt_system, opt_user = self.budgeter.optimize_payload(system_prompt, user_input, max_tokens=max_tokens)
         response = self.llm.create_chat_completion(
-            messages=messages,
+            messages=[{"role": "system", "content": opt_system}, {"role": "user", "content": opt_user}],
             temperature=temperature,
             max_tokens=max_tokens,
         )
@@ -131,47 +124,44 @@ class LlamaCppEngine:
 
 
 class GroqEngine:
-    """
-    Groq API Engine with Auto-Model Sanitization, Multi-Key Rotation, and Detailed Debug Logging.
-    """
+    VALID_MODELS = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "openai/gpt-oss-20b", "groq/compound", "groq/compound-mini", "allam-2-7b"]
 
-    VALID_MODELS = [
-        "openai/gpt-oss-120b",
-        "qwen/qwen3.6-27b",
-        "openai/gpt-oss-20b",
-        "groq/compound",
-        "groq/compound-mini",
-        "allam-2-7b",
-    ]
+    # Response-time fix: with N configured keys, the old code could
+    # block for up to N * (connect_timeout + read_timeout) seconds --
+    # e.g. 6 keys * ~10.5s worst case ~= 63s -- before ever falling
+    # back to local/degraded mode, because there was no ceiling on the
+    # *total* time spent rotating through keys, only a per-key one.
+    # This wall-clock budget caps the whole rotation regardless of how
+    # many keys are configured, so a bad key (or a flaky network mid-
+    # rotation) can no longer multiply response latency turn after turn.
+    MAX_TOTAL_SECONDS = 12.0
 
-    def __init__(
-        self,
-        api_keys: Optional[str] = None,
-        model: Optional[str] = None,
-        base_url: Optional[str] = None,
-        timeout: float = 20.0,
-    ):
+    def __init__(self, api_keys: Optional[str] = None, model: Optional[str] = None, base_url: Optional[str] = None, timeout: float = 8.0):
         if requests is None:
             raise ImportError("The 'requests' package is not installed (pip install requests).")
-
         raw_keys = api_keys or os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY") or ""
         self.api_keys = [k.strip() for k in raw_keys.replace(" ", "").split(",") if k.strip()]
-
         if not self.api_keys:
             raise RuntimeError("No Groq API key (gsk_...) found in .env file.")
-
         target_model = model or os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b"
         if target_model not in self.VALID_MODELS:
             target_model = "openai/gpt-oss-120b"
-        
         self.model = target_model
-        self.base_url = "https://api.groq.com/openai/v1"
-        self.timeout = timeout
+        self.base_url = base_url or "https://api.groq.com/openai/v1"
+        self.timeout = max(2.0, float(timeout))
         self._current_index = 0
+        # SECOND PROVIDER (UK's explicit ask): Gemini, via Google's own
+        # OpenAI-compatible endpoint -- so this reuses the SAME request/
+        # response handling below, just a different base_url/key/model.
+        # Optional: if GEMINI_API_KEY isn't set, gemini_available()
+        # returns False and every caller degrades to Groq-only, exactly
+        # as before this was added.
+        gemini_keys_raw = os.getenv("GEMINI_API_KEY") or ""
+        self.gemini_api_keys = [k.strip() for k in gemini_keys_raw.replace(" ", "").split(",") if k.strip()]
+        self.gemini_base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+        self.gemini_model = os.getenv("GEMINI_MODEL") or "gemini-3.8-flash"
+        self._gemini_current_index = 0
 
-<<<<<<< HEAD
-    def generate(self, system_prompt: str, user_input: str, max_tokens: int = 512, temperature: float = 0.7) -> str:
-=======
         # THE ACTUAL CRASH CAUSE (found 2026-09-15, from UK's own
         # spike-capture thread dumps).
         #
@@ -215,59 +205,35 @@ class GroqEngine:
         response JSON; callers pull out whichever part of `message`
         they need (plain .content for generate(), the full message
         dict incl. tool_calls for generate_with_tools())."""
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
         url = f"{self.base_url}/chat/completions"
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_input},
-            ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-
         total_keys = len(self.api_keys)
         last_error = None
-
+        deadline = time.time() + self.MAX_TOTAL_SECONDS
         for attempt in range(total_keys):
+            remaining = deadline - time.time()
+            if remaining <= 0.5:
+                last_error = last_error or f"Groq rotation budget ({self.MAX_TOTAL_SECONDS}s) exhausted"
+                break
             key_index = self._current_index
             self._current_index = (self._current_index + 1) % total_keys
-
             active_key = self.api_keys[key_index]
             key_num = key_index + 1
-
-            headers = {
-                "Authorization": f"Bearer {active_key}",
-                "Content-Type": "application/json",
-            }
-
+            headers = {"Authorization": f"Bearer {active_key}", "Content-Type": "application/json"}
+            per_call_read_timeout = max(1.0, min(self.timeout, remaining - 0.5))
             try:
-<<<<<<< HEAD
-                print(f"[JARVIS LLM] Groq Key #{key_num}/{total_keys} | Model: {self.model}")
-                resp = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
-
-=======
                 log_event("llm_bridge", f"groq key #{key_num}/{total_keys} | model: {self.model}{' | tools' if payload.get('tools') else ''}")
                 resp = self._session.post(url, headers=headers, json=payload, timeout=(2.5, per_call_read_timeout))
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
                 if resp.status_code in (404, 401, 403, 429):
-                    print(f"[JARVIS LLM] Key #{key_num} failed HTTP {resp.status_code}: {resp.text.strip()}")
-                    print(f"[JARVIS LLM] Switching key...")
+                    log_event("llm_bridge", f"groq key #{key_num} failed HTTP {resp.status_code}: {resp.text.strip()[:200]}", level="warning")
                     last_error = f"HTTP {resp.status_code} ({resp.text.strip()})"
                     continue
-
                 resp.raise_for_status()
-                data = resp.json()
-                return data["choices"][0]["message"]["content"].strip()
-
+                return resp.json()
             except Exception as exc:
-                print(f"[JARVIS LLM] Key #{key_num} error: {exc}. Trying next key...")
+                log_event("llm_bridge", f"groq key #{key_num} error: {exc}. trying next key...", level="warning")
                 last_error = exc
+        raise RuntimeError(f"Groq request failed within {self.MAX_TOTAL_SECONDS}s budget. Last error: {last_error}")
 
-<<<<<<< HEAD
-        raise RuntimeError(f"All {total_keys} Groq API keys failed. Last error: {last_error}")
-=======
     def generate(self, system_prompt: str, user_input: str, max_tokens: int = 512, temperature: float = 0.7,
                  response_format: Optional[Dict[str, Any]] = None, reasoning_effort: Optional[str] = None) -> str:
         # THE ACTUAL BUG UK CAUGHT LIVE, from the real terminal/web
@@ -336,7 +302,6 @@ class GroqEngine:
             payload["reasoning_effort"] = reasoning_effort
         data = self._post_chat_completion(payload)
         return data["choices"][0]["message"]
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
 
 class HybridLLMBridge:
@@ -349,136 +314,17 @@ class HybridLLMBridge:
     # has room to be generated.
     RESPONSE_TOKEN_FLOOR = 2000
 
-    # =============================================================
-    # ONE-CALL RESPONSE + MEMORY SIGNAL
-    # =============================================================
-    #
-    # Architecture decision from the blueprint review: instead of
-    # (1) a full call to generate the chat reply and then (2) a
-    # SECOND full call just to extract a subject/predicate/value
-    # fact triple out of the same turn, Qwen is asked to do both in
-    # ONE call and return structured JSON. This halves LLM calls,
-    # tokens, and latency per turn on the offline 3B model, which is
-    # exactly where it matters most (Android, 8GB RAM).
-    #
-    # Qwen's job here is strictly: understand, reason, respond,
-    # generate a memory SIGNAL. It never writes to the database
-    # itself -- the signal is only a candidate that the learning
-    # pipeline (ExperienceEngine -> SelfEvaluator -> KnowledgeBuilder)
-    # evaluates and may accept. That separation is intentional and
-    # must not be collapsed even when it's convenient to do so.
-    _MEMORY_SIGNAL_INSTRUCTIONS = (
-        "\n\nOUTPUT FORMAT (STRICT -- do not break this):\n"
-        "Respond with ONLY one raw JSON object, no markdown fences, "
-        "no text before or after it, matching exactly this shape:\n"
-        '{"response": "<your natural in-character reply to the user>", '
-        '"memory": {"has_fact": true|false, "subject": "<short lowercase phrase>", '
-        '"predicate": "<short lowercase phrase>", "value": "<the fact>"}}\n'
-        "Set memory.has_fact to true ONLY if the user's message stated a "
-        "durable fact worth remembering long-term (a name, a preference, "
-        "a relationship, a date, an event). The user often writes in "
-        "Hinglish with typos -- correct typos silently and extract the "
-        "clean fact. If no such fact exists in this turn, output exactly "
-        '{"has_fact": false} for memory. Never omit the "response" field.'
-    )
-
-    @staticmethod
-    def _parse_combined(raw: Any) -> Dict[str, Any]:
-        """
-        Parse a combined {response, memory} payload out of raw model
-        output. Falls back to treating the whole output as the reply
-        (with no memory signal) if the model didn't obey the JSON
-        contract -- a malformed reply must never become an error the
-        user sees, it should just mean "nothing learned this turn".
-        """
-        if not isinstance(raw, str) or not raw.strip():
-            return {"response": "", "memory_signal": None}
-
-        cleaned = re.sub(
-            r"^```(?:json)?|```$", "", raw.strip(), flags=re.MULTILINE
-        ).strip()
-
-        try:
-            data = json.loads(cleaned)
-        except Exception:
-            return {"response": raw.strip(), "memory_signal": None}
-
-        if not isinstance(data, dict) or "response" not in data:
-            return {"response": raw.strip(), "memory_signal": None}
-
-        memory_signal = None
-        mem = data.get("memory")
-        if isinstance(mem, dict) and mem.get("has_fact"):
-            subject = str(mem.get("subject", "")).strip()
-            predicate = str(mem.get("predicate", "")).strip()
-            value = mem.get("value")
-            if subject and predicate and value not in (None, ""):
-                memory_signal = {
-                    "subject": subject,
-                    "predicate": predicate,
-                    "value": value,
-                }
-
-        return {
-            "response": str(data.get("response", "")).strip(),
-            "memory_signal": memory_signal,
-        }
-
-    def generate_combined(
-        self,
-        system_prompt: str,
-        user_input: str,
-        max_tokens: int = 512,
-        temperature: float = 0.7,
-    ) -> Dict[str, Any]:
-        """
-        ONE model call -> {"response": str, "memory_signal": dict|None}
-
-        Replaces the old "generate reply, then separately re-call the
-        model to extract a fact" pattern used by Brain.think_and_respond.
-        """
-        augmented_system_prompt = system_prompt + self._MEMORY_SIGNAL_INSTRUCTIONS
-        raw = self.generate_response(
-            system_prompt=augmented_system_prompt,
-            user_input=user_input,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        return self._parse_combined(raw)
-
-    def __init__(
-        self,
-        model_filename: str = "qwen2.5-3b-instruct-q4_k_m.gguf",
-        n_ctx: int = 4096,  # ✅ Default updated to 4096
-        n_threads: int = 4,
-        force_mode: Optional[str] = None,
-    ):
+    def __init__(self, model_filename: str = "qwen2.5-1.5b-instruct-q4_k_m.gguf", n_ctx: int = 2048, n_threads: int = 2, force_mode: Optional[str] = None):
         self._model_filename = model_filename
         self._n_ctx = n_ctx
         self._n_threads = n_threads
         self._force_mode = force_mode
-
         self._groq_engine: Optional[GroqEngine] = None
         self._local_engine: Optional[LlamaCppEngine] = None
-
+        self._slm_engine: Optional[LlamaCppEngine] = None
         self._last_check_time = 0.0
         self._last_online_result = False
-
-        # THE ACTUAL BUG THIS FIXES: __init__ used to do nothing but
-        # store config -- it never tried to load anything, so
-        # constructing this class always "succeeded" even if
-        # llama-cpp-python wasn't installed or the GGUF file was
-        # missing. cli.py would print "Neural Bridge Online" no
-        # matter what, and the real failure only ever surfaced later,
-        # buried inside a chat reply's text ("[Model Generation
-        # Error: ...]") that looked like a bad answer rather than a
-        # startup failure. self.last_error and self.is_ready below
-        # let callers (cli.py, the web /api/organism/state endpoint)
-        # show the REAL state instead of assuming success.
         self.last_error: Optional[str] = None
-<<<<<<< HEAD
-        self.is_ready: bool = False
-=======
         self.last_backend = "idle"
         self.is_ready = False
         self._budget_max_calls = 2
@@ -604,21 +450,13 @@ class HybridLLMBridge:
             self._level_calls[level] = self._level_calls.get(level, 0) + 1
         self._turn_reserved_tokens += requested
         return requested
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
     def verify_offline_ready(self) -> bool:
-        """
-        Eagerly loads the local llama.cpp engine right now instead of
-        waiting for the first chat message to discover it's broken.
-        Call this once right after construction (see cli.py). Sets
-        self.last_error / self.is_ready either way, and also means the
-        model is already warm in RAM before the first real message
-        instead of paying that load cost on the user's first turn.
-        """
         try:
             self._get_local()
             self.is_ready = True
             self.last_error = None
+            self.last_backend = "local"
             return True
         except Exception as exc:
             self.is_ready = False
@@ -630,21 +468,25 @@ class HybridLLMBridge:
             return True
         if self._force_mode == "offline":
             return False
-
         now = time.time()
         if (now - self._last_check_time) < self.CONNECTIVITY_CHECK_INTERVAL_SECONDS:
             return self._last_online_result
-
         online = False
         try:
-            socket.setdefaulttimeout(self.CONNECTIVITY_TIMEOUT)
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect((self.CONNECTIVITY_TEST_HOST, self.CONNECTIVITY_TEST_PORT))
-            s.close()
+            # Response-time / correctness fix: socket.setdefaulttimeout()
+            # sets the timeout for every socket created ANYWHERE in this
+            # process from this point on -- including the web server's
+            # own sockets (backend/server.py, WebSocket connections) --
+            # not just this one connectivity probe. That is a real,
+            # process-wide side effect this connectivity check should
+            # never have had. Set the timeout on this one socket
+            # instance instead.
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(self.CONNECTIVITY_TIMEOUT)
+                sock.connect((self.CONNECTIVITY_TEST_HOST, self.CONNECTIVITY_TEST_PORT))
             online = True
         except OSError:
             online = False
-
         self._last_check_time = now
         self._last_online_result = online
         return online
@@ -655,52 +497,55 @@ class HybridLLMBridge:
         return self._groq_engine
 
     def _get_local(self) -> LlamaCppEngine:
+        """Full offline conversational fallback -- models/Offline_LLM/,
+        used only when Groq (online) is unavailable. See config/models.json."""
         if self._local_engine is None:
-            self._local_engine = LlamaCppEngine(
-                model_filename=self._model_filename,
-                n_ctx=self._n_ctx,
-                n_threads=self._n_threads,
-            )
+            cfg = self._offline_model_config
+            self._local_engine = LlamaCppEngine(model_filename=cfg["model_filename"], subdir=cfg["subdir"], n_ctx=cfg["n_ctx"], n_threads=cfg["n_threads"])
         return self._local_engine
 
-    def generate_response(
-        self,
-        system_prompt: str,
-        user_input: str,
-        max_tokens: int = 512,
-        temperature: float = 0.7,
-        **kwargs,
-    ) -> str:
+    def get_slm_engine(self) -> LlamaCppEngine:
+        """SLM tier -- models/SLM/, a separate, much smaller model used
+        ONLY for narrow classification/disambiguation (blueprint LEVEL
+        4/5, see core/orchestration/slm_bridge.py). Deliberately a
+        DIFFERENT engine instance from _get_local()'s offline-chat
+        model -- these are two distinct roles with two distinct model
+        sizes, not the same model wearing two hats."""
+        if self._slm_engine is None:
+            cfg = self._slm_model_config
+            self._slm_engine = LlamaCppEngine(model_filename=cfg["model_filename"], subdir=cfg["subdir"], n_ctx=cfg["n_ctx"], n_threads=cfg["n_threads"])
+        return self._slm_engine
+
+    def generate(self, system_prompt: str, user_input: str, max_tokens: int = 512, temperature: float = 0.7, level: Optional[str] = None) -> str:
+        return self.generate_response(system_prompt=system_prompt, user_input=user_input, max_tokens=max_tokens, temperature=temperature, level=level)
+
+    def generate_with_tools(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]],
+                             tool_choice: str = "auto", max_tokens: int = 1024, temperature: float = 0.7,
+                             level: Optional[str] = None, reasoning_effort: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Tool-calling entry point at the Hybrid (online/offline-aware)
+        level. Unlike generate_response(), this deliberately does NOT
+        fall back to the offline local GGUF model -- tool-calling
+        reliability on a 1.5B quantized local model is not something
+        to depend on, and the local model was never used for anything
+        beyond plain conversational fallback to begin with. Returns
+        None (not a string) when tool-calling isn't available right
+        now (offline, no Groq key, or budget exhausted) -- callers
+        (see core/orchestration/tool_registry.py) must treat None as
+        "fall back to the plain conversational path", not as an error
+        to surface to the user."""
+        reserved_tokens = self._reserve_budget(max_tokens, level=level)
         online = self._is_online()
         have_groq_key = bool(os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY"))
-
-        if online and have_groq_key:
-            try:
-                engine = self._get_groq()
-                result = engine.generate(
-                    system_prompt=system_prompt,
-                    user_input=user_input,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                )
-                self.last_error = None
-                self.is_ready = True
-                return result
-            except Exception as exc:
-                print(f"[JARVIS LLM] Groq API failed ({exc}), falling back to offline model.")
-
+        if not (online and have_groq_key):
+            self.last_backend = "tools_unavailable_offline"
+            return None
         try:
-            engine = self._get_local()
-            result = engine.generate(
-                system_prompt=system_prompt,
-                user_input=user_input,
-                max_tokens=max_tokens,
-                temperature=temperature,
+            message = self._get_groq().generate_with_tools(
+                messages=messages, tools=tools, tool_choice=tool_choice,
+                max_tokens=reserved_tokens, temperature=temperature, reasoning_effort=reasoning_effort,
             )
             self.last_error = None
             self.is_ready = True
-<<<<<<< HEAD
-=======
             self.last_backend = "groq_tools"
             return message
         except Exception as exc:
@@ -744,19 +589,41 @@ class HybridLLMBridge:
             self.last_error = None
             self.is_ready = True
             self.last_backend = "local"
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
             return result
         except Exception as exc:
-            # This string used to be the ONLY place a broken model
-            # setup ever became visible -- and it looked like a
-            # (bad) chat reply rather than a system fault. It's kept
-            # here as a last-resort safety net, but verify_offline_
-            # ready() below is what should actually catch this at
-            # startup now.
             self.last_error = str(exc)
+            self.last_backend = "local_error"
             self.is_ready = False
             return f"[Model Generation Error: {exc}]"
 
 
-# Backward compatibility alias for cli.py and brain.py
 LlamaCppBridge = HybridLLMBridge
+
+
+def can_afford_another_llm_call(llm_bridge: Any, min_calls_remaining_after: int = 1) -> bool:
+    """Shared budget-awareness guard (blueprint: no retry mechanism may
+    greedily spend the whole shared per-turn budget on itself).
+
+    Originally lived only inside LLMPerceptionProvider -- but adding a
+    SECOND independent retry stage (semantic understanding's own LLM
+    fallback, see blueprint_brain.py's _configure_semantic_fallback)
+    means the same discipline is needed in two places now. Extracted
+    here once rather than duplicated, so both call sites stay in sync
+    with however the budget system evolves.
+
+    Worst case per turn with both retries possible: perception
+    (primary+refined=2) + semantic understanding (primary+refined=2) +
+    main response (1) = 5 calls -- see config/cognition.json's
+    max_calls_per_turn, which is sized with this in mind.
+    """
+    budget_status = getattr(llm_bridge, "budget_status", None)
+    if not callable(budget_status):
+        return True  # bridge doesn't expose budget info; nothing to guard against
+    try:
+        status = budget_status()
+    except Exception:
+        return True
+    remaining_calls = status.get("remaining_calls")
+    if remaining_calls is None:
+        return True
+    return remaining_calls > min_calls_remaining_after

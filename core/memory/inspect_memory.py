@@ -16,23 +16,19 @@ except ImportError:
 
 console = Console()
 
-# Strictly Enforce Standard Single DB and FAISS Index
-POSSIBLE_DBS = ["jarvis.db", "database/jarvis.db"]
-POSSIBLE_FAISS = ["jarvis_faiss.index", "database/jarvis_faiss.index"]
-
-
-def find_existing_file(file_list: List[str]) -> Optional[str]:
-    for path in file_list:
-        if os.path.exists(path) and os.path.getsize(path) > 0:
-            return path
-    for path in file_list:
-        if os.path.exists(path):
-            return path
-    return None
-
-
-DB_PATH = find_existing_file(POSSIBLE_DBS) or "jarvis.db"
-FAISS_PATH = find_existing_file(POSSIBLE_FAISS) or "jarvis_faiss.index"
+# SINGLE SOURCE OF TRUTH, ANCHORED TO THE PROJECT ROOT -- NOT a
+# relative path. A relative "database/jarvis.db" resolves differently
+# depending on the CURRENT WORKING DIRECTORY the script happens to be
+# invoked from: correct when run from the project root (cli.py's
+# normal case), but silently wrong (or pointing at a path that doesn't
+# exist at all) if this file is ever run directly from inside a
+# subdirectory (e.g. `cd database && python3 inspect_memory.py`,
+# which was tried directly). Anchoring to this file's own location
+# makes the resolved path identical no matter where the process's
+# cwd happens to be.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DB_PATH = os.path.join(_PROJECT_ROOT, "database", "jarvis.db")
+FAISS_PATH = os.path.join(_PROJECT_ROOT, "database", "jarvis_faiss.index")
 
 
 def load_db_data() -> List[Dict]:

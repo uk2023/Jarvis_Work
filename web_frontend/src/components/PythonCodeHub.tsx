@@ -45,7 +45,7 @@ export const PythonCodeHub: React.FC<PythonCodeHubProps> = ({ theme = 'dark' }) 
     let fullDump = `# ==============================================================================
 # JARVIS ORGANISM - FULL MASTER REPOSITORY DUMP
 # Target: Android 8GB RAM (Termux / PRoot ARM64 Ready)
-# Model: Qwen2.5-3B-Instruct (Q4_K_M GGUF) + Fast ONNX Embedder (all-MiniLM-L6-v2)
+# Cognitive Pipeline: Native-first with Groq openai/gpt-oss-120b fallback (Gemini backup)
 # Architecture: Non-blocking Async Background Learning + Typo Tolerance
 # ==============================================================================
 `;
@@ -80,10 +80,10 @@ export const PythonCodeHub: React.FC<PythonCodeHubProps> = ({ theme = 'dark' }) 
       >
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <div className="w-2.5 h-2.5 rounded-full bg-cyan-500 animate-pulse shadow-[0_0_8px_#22d3ee]"></div>
+            <div className="w-2.5 h-2.5 rounded-full bg-brand-500 animate-pulse shadow-[0_0_8px_#22d3ee]"></div>
             <h2
               className={`text-sm sm:text-base font-bold tracking-widest uppercase font-mono ${
-                isDark ? 'text-cyan-50' : 'text-slate-900'
+                isDark ? 'text-brand-50' : 'text-slate-900'
               }`}
             >
               JARVIS PYTHON CORE CODEBASE & EXPORTER
@@ -98,7 +98,7 @@ export const PythonCodeHub: React.FC<PythonCodeHubProps> = ({ theme = 'dark' }) 
           onClick={handleDownloadFullDump}
           className={`px-4 py-2 rounded-xl text-xs font-bold font-mono flex items-center gap-2 transition shrink-0 cursor-pointer shadow-md ${
             isDark
-              ? 'bg-cyan-400 hover:bg-cyan-300 text-black shadow-[0_0_15px_#22d3ee]'
+              ? 'bg-brand-400 hover:bg-brand-300 text-black shadow-[0_0_15px_#22d3ee]'
               : 'bg-slate-900 hover:bg-slate-800 text-white'
           }`}
         >
@@ -117,21 +117,21 @@ export const PythonCodeHub: React.FC<PythonCodeHubProps> = ({ theme = 'dark' }) 
       >
         <div
           className={`flex items-center gap-2 font-bold text-xs uppercase tracking-wider ${
-            isDark ? 'text-cyan-300' : 'text-cyan-700'
+            isDark ? 'text-brand-300' : 'text-brand-700'
           }`}
         >
-          <Cpu className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />
+          <Cpu className="w-4 h-4 text-brand-500 dark:text-brand-400" />
           <span>Android 8GB RAM Offline Model Recommendation & Fast Execution Parameters</span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[11px]">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
           <div
             className={`p-3.5 rounded-xl border ${
               isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'
             }`}
           >
-            <div className={`font-bold mb-1 ${isDark ? 'text-cyan-300' : 'text-cyan-800'}`}>1. Model Choice</div>
+            <div className={`font-bold mb-1 ${isDark ? 'text-brand-300' : 'text-brand-800'}`}>1. Cognitive Architecture</div>
             <p className={isDark ? 'text-white/60' : 'text-slate-600'}>
-              <strong className={isDark ? 'text-white' : 'text-slate-900'}>Qwen2.5-3B-Instruct (Q4_K_M)</strong> (~1.9 GB RAM). Highly accurate with Hinglish dialect, typos, and structured tool calling.
+              <strong className={isDark ? 'text-white' : 'text-slate-900'}>Native Python Pipeline</strong> first with <strong className={isDark ? 'text-white' : 'text-slate-900'}>Groq openai/gpt-oss-120b</strong> fallback (and Gemini secondary).
             </p>
           </div>
           <div
@@ -139,9 +139,9 @@ export const PythonCodeHub: React.FC<PythonCodeHubProps> = ({ theme = 'dark' }) 
               isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'
             }`}
           >
-            <div className={`font-bold mb-1 ${isDark ? 'text-cyan-300' : 'text-cyan-800'}`}>2. Multi-Threading</div>
+            <div className={`font-bold mb-1 ${isDark ? 'text-brand-300' : 'text-brand-800'}`}>2. Multi-Threading</div>
             <p className={isDark ? 'text-white/60' : 'text-slate-600'}>
-              Set <code className={isDark ? 'text-cyan-200' : 'text-cyan-800 font-semibold'}>n_threads=4</code>, <code className={isDark ? 'text-cyan-200' : 'text-cyan-800 font-semibold'}>OMP_NUM_THREADS=2</code>, and <code className={isDark ? 'text-cyan-200' : 'text-cyan-800 font-semibold'}>n_ctx=4096</code> to maximize CPU efficiency.
+              Set <code className={isDark ? 'text-brand-200' : 'text-brand-800 font-semibold'}>n_threads=4</code>, <code className={isDark ? 'text-brand-200' : 'text-brand-800 font-semibold'}>OMP_NUM_THREADS=2</code>, and <code className={isDark ? 'text-brand-200' : 'text-brand-800 font-semibold'}>n_ctx=4096</code> to maximize CPU efficiency.
             </p>
           </div>
           <div
@@ -151,7 +151,7 @@ export const PythonCodeHub: React.FC<PythonCodeHubProps> = ({ theme = 'dark' }) 
           >
             <div className={`font-bold mb-1 ${isDark ? 'text-green-300' : 'text-emerald-800'}`}>3. Fast Setup</div>
             <p className={isDark ? 'text-white/60' : 'text-slate-600'}>
-              Run <code className={isDark ? 'text-green-200' : 'text-emerald-800 font-semibold'}>bash download.sh</code> to download ONNX MiniLM embedder (~45MB) and Qwen GGUF model in one step.
+              Run <code className={isDark ? 'text-green-200' : 'text-emerald-800 font-semibold'}>bash download.sh</code> to configure ONNX MiniLM embedder (~45MB) and SQLite + FAISS indices.
             </p>
           </div>
         </div>
@@ -168,7 +168,7 @@ export const PythonCodeHub: React.FC<PythonCodeHubProps> = ({ theme = 'dark' }) 
           }`}
         >
           <div
-            className={`text-[10px] uppercase font-bold px-2 py-1 tracking-wider ${
+            className={`text-xs uppercase font-bold px-2 py-1 tracking-wider ${
               isDark ? 'text-white/40' : 'text-slate-400'
             }`}
           >
@@ -183,7 +183,7 @@ export const PythonCodeHub: React.FC<PythonCodeHubProps> = ({ theme = 'dark' }) 
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition text-left cursor-pointer ${
                   isSelected
                     ? isDark
-                      ? 'bg-cyan-400/20 text-cyan-200 border border-cyan-400/40 font-bold shadow-[0_0_10px_rgba(34,211,238,0.2)]'
+                      ? 'bg-brand-400/20 text-brand-200 border border-brand-400/40 font-bold shadow-[0_0_10px_rgba(34,211,238,0.2)]'
                       : 'bg-slate-900 text-white border border-slate-900 font-bold shadow-xs'
                     : isDark
                     ? 'text-white/60 hover:text-white hover:bg-white/5 border border-transparent'
@@ -191,11 +191,11 @@ export const PythonCodeHub: React.FC<PythonCodeHubProps> = ({ theme = 'dark' }) 
                 }`}
               >
                 <div className="flex items-center gap-2 truncate">
-                  <FileCode className={`w-3.5 h-3.5 shrink-0 ${isSelected ? (isDark ? 'text-cyan-300' : 'text-cyan-400') : 'text-cyan-500'}`} />
+                  <FileCode className={`w-3.5 h-3.5 shrink-0 ${isSelected ? (isDark ? 'text-brand-300' : 'text-brand-400') : 'text-brand-500'}`} />
                   <span className="truncate">{file.filename}</span>
                 </div>
                 <span
-                  className={`text-[9px] uppercase px-1.5 py-0.5 rounded ${
+                  className={`text-xs uppercase px-1.5 py-0.5 rounded ${
                     isSelected && !isDark
                       ? 'bg-white/20 text-white'
                       : isDark
@@ -230,10 +230,10 @@ export const PythonCodeHub: React.FC<PythonCodeHubProps> = ({ theme = 'dark' }) 
                   isDark ? 'text-white' : 'text-slate-900'
                 }`}
               >
-                <Terminal className="w-3.5 h-3.5 text-cyan-500" />
+                <Terminal className="w-3.5 h-3.5 text-brand-500" />
                 <span>{selectedFile.path}</span>
               </div>
-              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
+              <p className={`text-xs mt-0.5 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
                 {selectedFile.description}
               </p>
             </div>
@@ -243,7 +243,7 @@ export const PythonCodeHub: React.FC<PythonCodeHubProps> = ({ theme = 'dark' }) 
                 onClick={handleCopy}
                 className={`px-3 py-1.5 border rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer ${
                   isDark
-                    ? 'bg-white/5 hover:bg-white/10 border-white/10 text-cyan-200 hover:text-white'
+                    ? 'bg-white/5 hover:bg-white/10 border-white/10 text-brand-200 hover:text-white'
                     : 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700 hover:text-slate-900 shadow-xs'
                 }`}
                 title="Copy file content"
@@ -255,7 +255,7 @@ export const PythonCodeHub: React.FC<PythonCodeHubProps> = ({ theme = 'dark' }) 
                 onClick={handleDownloadFile}
                 className={`px-3 py-1.5 border rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer ${
                   isDark
-                    ? 'bg-cyan-400/20 hover:bg-cyan-400/30 border-cyan-400/40 text-cyan-200'
+                    ? 'bg-brand-400/20 hover:bg-brand-400/30 border-brand-400/40 text-brand-200'
                     : 'bg-slate-900 hover:bg-slate-800 text-white border-slate-900 shadow-xs'
                 }`}
                 title="Download this file"
@@ -270,8 +270,8 @@ export const PythonCodeHub: React.FC<PythonCodeHubProps> = ({ theme = 'dark' }) 
           <div
             className={`p-4 overflow-x-auto max-h-[520px] overflow-y-auto font-mono text-xs leading-relaxed ${
               isDark
-                ? 'bg-black/70 text-[#e0e0e0] selection:bg-cyan-400/30'
-                : 'bg-slate-900 text-slate-100 selection:bg-cyan-600/40'
+                ? 'bg-black/70 text-[#e0e0e0] selection:bg-brand-400/30'
+                : 'bg-slate-900 text-slate-100 selection:bg-brand-600/40'
             }`}
           >
             <pre>

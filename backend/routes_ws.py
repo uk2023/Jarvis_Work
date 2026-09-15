@@ -16,6 +16,7 @@ from .ws_manager import (
     thinking_snapshot,
 )
 from .config import get_local_ist_timestamp
+from .trace_utils import real_turn_trace, turn_trace_to_json, turn_trace_summary, extracted_fact_from_trace
 
 router = APIRouter()
 
@@ -112,48 +113,24 @@ async def _handle_user_message(websocket: WebSocket, data: dict):
         latency = round(time.time() - start_time, 3)
         reply_str = str(reply)
 
-        # Build the trace from what ACTUALLY happened this turn instead
-        # of a static string that printed the same fake "0.001s FAISS
-        # hit" and "Episode logged & validated" every single time no
-        # matter what the pipeline really did. cli.py's
-        # execute_cognitive_query() stashes the real numbers on
-        # brain.last_turn_trace right after each turn — pull that.
-        trace = getattr(integration.brain, "last_turn_trace", None) if integration.brain else None
-
-        if trace:
-            mem = trace.get("memory", {})
-            timings = trace.get("timings", {})
-            queue = trace.get("learning_queue", {})
-            trace_log_str = (
-                f"COGNITIVE EXECUTION TRACE (Source: WEB | Latency: {timings.get('total', latency):.3f}s)\n"
-                f"Event Ingestion: USER_INPUT via 'web' interface\n"
-                f"Memory Subsystem Search ({timings.get('memory', 0.0):.3f}s):\n"
-                f"  FAISS Vector Index: {mem.get('recent_experiences', 0)} matching frames retrieved\n"
-                f"  Knowledge Graph: {mem.get('relevant_knowledge', 0)} facts, {mem.get('graph_relations', 0)} relations\n"
-                f"Learning Pipeline (async):\n"
-                f"  Queued for background learning -- queue pending={queue.get('pending', '?')}, "
-                f"processed so far={queue.get('processed', '?')}, failed={queue.get('failed', '?')}\n"
-                f"Neural Inference (Qwen, single combined call): response + memory_signal in one call"
-                f" ({timings.get('llm', latency):.3f}s)\n"
-                f"Trace ID: TRC-LIVE"
-            )
-        else:
-            # Fallback for when brain isn't wired yet / trace missing --
-            # still real (latency, actual reply length), just less detailed.
-            trace_log_str = (
-                f"COGNITIVE EXECUTION TRACE (Source: WEB | Latency: {latency}s)\n"
-                f"Event Ingestion: USER_INPUT via 'web' interface\n"
-                f"Detailed pipeline trace unavailable (brain.last_turn_trace not set yet).\n"
-                f"Reply length: {len(reply_str)} chars\n"
-                f"Trace ID: TRC-LIVE"
-            )
+        # The REAL trace this turn produced -- the exact same
+        # brain.last_turn_trace dict cli.py's execute_cognitive_query()
+        # and deep_inspector.py render (see backend/trace_utils.py).
+        # Previously this read trace["memory"]/trace["learning_queue"],
+        # neither of which the real trace object ever sets, so every
+        # turn printed "0 matching frames retrieved" regardless of what
+        # actually happened.
+        trace = real_turn_trace(integration.brain)
+        trace_summary = turn_trace_summary(trace, integration.brain)
+        extracted_fact = extracted_fact_from_trace(trace)
 
         database.save_message_to_db(
             session_id=session_id,
             sender="jarvis",
             text=reply_str,
             source="web",
-            trace_log=trace_log_str,
+            trace_log=turn_trace_to_json(trace),
+            extracted_fact=json.dumps(extracted_fact) if extracted_fact else None,
         )
 
         broadcast_to_clients({
@@ -162,7 +139,10 @@ async def _handle_user_message(websocket: WebSocket, data: dict):
             "text": reply_str,
             "session_id": session_id,
             "timestamp": get_local_ist_timestamp(),
-            "trace_log": trace_log_str,
+            "trace": trace,
+            "trace_log": trace_summary,
+            "extracted_fact": extracted_fact,
+            "source": "web",
         })
     except Exception as exec_err:
         err_trace = traceback.format_exc()

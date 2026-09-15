@@ -22,13 +22,10 @@ from .file_watcher import start_universal_file_watcher
 from .routes_http import router as http_router
 from .routes_ws import router as ws_router
 from .routes_frontend_v6 import router as frontend_v6_router
-<<<<<<< HEAD
-=======
 from .routes_cognitive import router as cognitive_router
 from .routes_auth import router as auth_router
 from .routes_codebox import router as codebox_router
 from .routes_voice_call import router as voice_call_router
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
 # Make sure tables exist / migrations run before the app starts serving.
 database.db_write(database.init_db)
@@ -67,13 +64,10 @@ def create_app() -> FastAPI:
     app.include_router(http_router)
     app.include_router(ws_router)
     app.include_router(frontend_v6_router)
-<<<<<<< HEAD
-=======
     app.include_router(cognitive_router)
     app.include_router(auth_router)
     app.include_router(codebox_router)
     app.include_router(voice_call_router)
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
     # Serve the split css/js assets. index.html now references
     # /static/css/style.css and /static/js/app.js instead of everything

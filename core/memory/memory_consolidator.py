@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional
 
+from ..cognition.semantic_understanding.engine import SemanticUnderstandingEngine
+
 
 class MemoryConsolidator:
     """
@@ -18,27 +20,68 @@ class MemoryConsolidator:
         - avoid uncontrolled duplication
         - emit consolidation events
 
-    Later:
-        ExperienceEngine / SelfEvaluator can provide
-        better learning signals.
+    REWRITTEN (2026-09-07): the original version of this class only
+    understood a fully-structured episode.context/action/outcome with
+    a literal "subject"/"entity"/"topic"/"name" key -- a shape that
+    NO real chat turn actually produces. Every chat turn logged by
+    Brain._enqueue_learning() stores context={"user_input":...,
+    "perception":..., "semantic":..., "cognition":...} and
+    outcome={"response":...}. None of those top-level keys are
+    "subject" -- so `_extract_subject` always returned None and
+    `consolidated` was always 0, silently, forever. Combined with an
+    importance_threshold of 0.70 while real chat turns are logged at
+    importance=0.6, the OLD `_is_candidate` filter also rejected every
+    normal chat episode before extraction was even attempted. This is
+    exactly why idle-time "learning" was invisible in monitor.py: the
+    wiring in bootstrap.py was calling a function that could never
+    succeed on real data.
+
+    This version instead does what UK actually asked for: during idle,
+    look at recent USER_CHAT episodes whose live turn did NOT already
+    extract a relation (usually because the LLM per-turn call budget
+    was already spent -- see config/cognition.json's budget model and
+    the "wo hamirpur, UP me rahti h" case), and run the SAME
+    deterministic native SemanticUnderstandingEngine.understand() on
+    the raw user_input again -- now with no latency/budget pressure.
+    Anything it finds is promoted into semantic memory. The raw
+    episodic record itself is NEVER modified or deleted; only a
+    "consolidated" tag is appended so the same episode isn't
+    rescanned every idle tick. Episodic memory stays the full,
+    untouched conversation history; semantic memory only grows with
+    facts that were actually, verifiably extracted from it.
     """
 
-    VERSION = "0.1.0"
+    VERSION = "0.2.0"
 
     def __init__(
         self,
         memory_manager,
         event_bus=None,
-        importance_threshold: float = 0.70,
-        confidence_threshold: float = 0.60,
+        importance_threshold: float = 0.0,
+        confidence_threshold: float = 0.55,
         min_repetitions: int = 2,
+        semantic_engine: Optional[SemanticUnderstandingEngine] = None,
     ):
         self.memory = memory_manager
         self.events = event_bus
 
+        # importance_threshold is kept (for status()/back-compat) but
+        # is no longer used to gate USER_CHAT candidates -- see
+        # _is_candidate below for why that filter never matched real
+        # chat data.
         self.importance_threshold = importance_threshold
         self.confidence_threshold = confidence_threshold
         self.min_repetitions = min_repetitions
+
+        # A dedicated engine instance, NOT the one the live chat turn
+        # uses -- idle consolidation runs on the heartbeat thread while
+        # chat runs on the main/request thread, and SemanticUnderstanding
+        # Engine keeps small mutable cross-turn state (_last_entities,
+        # _recent_turns). Sharing one instance across threads would
+        # risk one turn's pronoun-resolution state leaking into the
+        # other's. A second, separate instance costs nothing and stays
+        # thread-safe by construction.
+        self._engine = semantic_engine or SemanticUnderstandingEngine()
 
         self.last_run_at: Optional[float] = None
         self.last_result: Optional[Dict[str, Any]] = None
@@ -53,39 +96,29 @@ class MemoryConsolidator:
         limit: int = 50,
     ) -> Dict[str, Any]:
         """
-        Inspect important episodic memories and attempt
-        to convert useful patterns into semantic knowledge.
+        Inspect recent USER_CHAT episodes and attempt to promote any
+        fact the live turn missed into semantic knowledge.
         """
 
         started_at = time.time()
 
-        episodes = self.memory.important_experiences(
-            threshold=self.importance_threshold,
-            limit=limit,
-        )
+        episodes = self.memory.find_experiences(event_type="USER_CHAT", limit=limit)
 
-        candidates = []
+        candidates = [episode for episode in episodes if self._is_candidate(episode)]
 
-        for episode in episodes:
-
-            if self._is_candidate(episode):
-                candidates.append(episode)
-
-        consolidated = []
+        consolidated: List[Dict[str, Any]] = []
+        examined_texts: List[str] = []
 
         for episode in candidates:
-
-            knowledge = self._consolidate_episode(
-                episode
-            )
-
-            if knowledge is not None:
-                consolidated.append(
-                    {
-                        "episode_id": episode.episode_id,
-                        "knowledge_id": knowledge.knowledge_id,
-                    }
-                )
+            promoted = self._consolidate_episode(episode)
+            if promoted:
+                consolidated.extend(promoted)
+            # Mark processed either way (even a genuine "nothing here"
+            # result should not be re-scanned every idle tick forever).
+            tags = getattr(episode, "tags", None)
+            if isinstance(tags, list) and "consolidated" not in tags:
+                tags.append("consolidated")
+            examined_texts.append(self._episode_text_preview(episode))
 
         self.run_count += 1
         self.last_run_at = time.time()
@@ -96,6 +129,7 @@ class MemoryConsolidator:
             "candidates": len(candidates),
             "consolidated": len(consolidated),
             "items": consolidated,
+            "examined_preview": examined_texts[:5],
             "duration": time.time() - started_at,
             "timestamp": self.last_run_at,
         }
@@ -118,202 +152,111 @@ class MemoryConsolidator:
         episode,
     ) -> bool:
         """
-        Decide whether an episode is useful enough
-        for semantic consolidation.
+        A USER_CHAT episode is worth re-examining during idle if:
+          - it hasn't already been consolidated this run/session, AND
+          - the live turn's own semantic-understanding pass did NOT
+            already extract a relation from it (if it did, that fact
+            is already in semantic memory -- nothing to redo), AND
+          - there's actual user text to analyze.
         """
 
-        importance = getattr(
-            episode,
-            "importance",
-            0.0,
-        )
-
-        confidence = getattr(
-            episode,
-            "confidence",
-            0.0,
-        )
-
-        if importance < self.importance_threshold:
+        if getattr(episode, "event_type", "") != "USER_CHAT":
             return False
 
-        if confidence < self.confidence_threshold:
+        tags = getattr(episode, "tags", None) or []
+        if "consolidated" in tags:
             return False
 
-        return True
+        context = getattr(episode, "context", None)
+        if not isinstance(context, dict):
+            return False
+
+        semantic = context.get("semantic")
+        existing_relations = semantic.get("relations") if isinstance(semantic, dict) else None
+        if existing_relations:
+            # Already captured live this turn -- nothing new to do,
+            # but still worth tagging so it's skipped next time.
+            return True
+
+        user_text = str(context.get("user_input") or "").strip()
+        return bool(user_text)
 
     # =============================================================
-    # EPISODE → KNOWLEDGE
+    # EPISODE -> KNOWLEDGE
     # =============================================================
 
     def _consolidate_episode(
         self,
         episode,
-    ):
+    ) -> List[Dict[str, Any]]:
         """
-        Convert one episode into semantic knowledge.
-
-        Current implementation uses structured episode data.
-        A future KnowledgeBuilder can replace this logic.
+        Re-run native extraction on one episode's raw user_input.
+        Returns a list of {episode_id, knowledge_id, subject,
+        predicate, value} dicts for whatever got promoted (may be
+        empty -- most re-examined episodes genuinely have no
+        extractable fact, e.g. a greeting or a question).
         """
 
-        context = getattr(
-            episode,
-            "context",
-            None,
-        ) or {}
+        context = getattr(episode, "context", None) or {}
+        semantic = context.get("semantic") if isinstance(context, dict) else None
+        if isinstance(semantic, dict) and semantic.get("relations"):
+            return []  # already handled live; _is_candidate kept this only to tag it
 
-        action = getattr(
-            episode,
-            "action",
-            None,
-        ) or {}
+        user_text = str(context.get("user_input") or "").strip()
+        if not user_text:
+            return []
 
-        outcome = getattr(
-            episode,
-            "outcome",
-            None,
-        ) or {}
+        try:
+            result = self._engine.understand(user_text)
+        except Exception as exc:
+            self._emit("IDLE_CONSOLIDATION_EXTRACTION_FAILED", {"episode_id": episode.episode_id, "error": str(exc)})
+            return []
 
-        event_type = getattr(
-            episode,
-            "event_type",
-            "UNKNOWN",
-        )
+        relations = result.get("relations") or []
+        promoted: List[Dict[str, Any]] = []
 
-        # ---------------------------------------------------------
-        # Need meaningful information
-        # ---------------------------------------------------------
+        for relation in relations:
+            if not isinstance(relation, dict):
+                continue
+            subject = str(relation.get("subject") or "").strip()
+            predicate = str(relation.get("predicate") or "").strip()
+            value = relation.get("value")
+            confidence = float(relation.get("confidence", 0.6) or 0.0)
 
-        if not context and not action and not outcome:
-            return None
+            if not subject or not predicate or value in (None, ""):
+                continue
+            if confidence < self.confidence_threshold:
+                continue
 
-        subject = self._extract_subject(
-            context=context,
-            action=action,
-            outcome=outcome,
-        )
+            knowledge = self.memory.remember_knowledge(
+                subject=subject,
+                predicate=predicate,
+                value=value,
+                confidence=confidence,
+                importance=0.6,
+                source="idle_consolidation",
+                tags=["idle_consolidated"],
+            )
 
-        if not subject:
-            return None
-
-        predicate = (
-            f"experienced_{event_type.lower()}"
-        )
-
-        value = {
-            "context": context,
-            "action": action,
-            "outcome": outcome,
-        }
-
-        confidence = min(
-            1.0,
-            max(
-                0.0,
-                float(
-                    getattr(
-                        episode,
-                        "confidence",
-                        0.5,
-                    )
-                ),
-            ),
-        )
-
-        importance = min(
-            1.0,
-            max(
-                0.0,
-                float(
-                    getattr(
-                        episode,
-                        "importance",
-                        0.5,
-                    )
-                ),
-            ),
-        )
-
-        tags = list(
-            getattr(
-                episode,
-                "tags",
-                [],
-            ) or []
-        )
-
-        # ---------------------------------------------------------
-        # Store semantic knowledge
-        # ---------------------------------------------------------
-
-        knowledge = self.memory.remember_knowledge(
-            subject=subject,
-            predicate=predicate,
-            value=value,
-            confidence=confidence,
-            importance=importance,
-            source="memory_consolidator",
-            tags=tags,
-        )
-
-        self._emit(
-            "MEMORY_CONSOLIDATED",
-            {
+            item = {
                 "episode_id": episode.episode_id,
                 "knowledge_id": knowledge.knowledge_id,
                 "subject": subject,
                 "predicate": predicate,
-            },
-        )
+                "value": value,
+            }
+            promoted.append(item)
 
-        return knowledge
+            self._emit("MEMORY_CONSOLIDATED", item)
 
-    # =============================================================
-    # SUBJECT EXTRACTION
-    # =============================================================
+        return promoted
 
     @staticmethod
-    def _extract_subject(
-        context: Dict[str, Any],
-        action: Dict[str, Any],
-        outcome: Dict[str, Any],
-    ) -> Optional[str]:
-        """
-        Extract a stable subject from structured experience data.
-
-        Prefer explicit subject/entity fields.
-        """
-
-        for container in (
-            context,
-            action,
-            outcome,
-        ):
-
-            if not isinstance(
-                container,
-                dict,
-            ):
-                continue
-
-            for key in (
-                "subject",
-                "entity",
-                "topic",
-                "name",
-            ):
-
-                value = container.get(key)
-
-                if value is not None:
-
-                    value = str(value).strip()
-
-                    if value:
-                        return value
-
-        return None
+    def _episode_text_preview(episode, limit: int = 60) -> str:
+        context = getattr(episode, "context", None) or {}
+        text = str(context.get("user_input") or "") if isinstance(context, dict) else ""
+        text = text.strip()
+        return (text[:limit] + "…") if len(text) > limit else text
 
     # =============================================================
     # CONSOLIDATE SINGLE EPISODE
@@ -322,29 +265,23 @@ class MemoryConsolidator:
     def consolidate_episode(
         self,
         episode_id: str,
-    ) -> Optional[Any]:
+    ) -> List[Dict[str, Any]]:
         """
-        Manually consolidate one known episode.
+        Manually consolidate one known episode (used by CLI/tools).
         """
 
-        episodes = self.memory.find_experiences(
-            limit=1000,
-        )
+        episodes = self.memory.find_experiences(limit=1000)
 
         for episode in episodes:
 
             if episode.episode_id == episode_id:
 
-                if not self._is_candidate(
-                    episode
-                ):
-                    return None
+                if not self._is_candidate(episode):
+                    return []
 
-                return self._consolidate_episode(
-                    episode
-                )
+                return self._consolidate_episode(episode)
 
-        return None
+        return []
 
     # =============================================================
     # STATUS
@@ -357,16 +294,17 @@ class MemoryConsolidator:
             "run_count": self.run_count,
             "last_run_at": self.last_run_at,
             "last_result": self.last_result,
-            "importance_threshold": (
-                self.importance_threshold
-            ),
-            "confidence_threshold": (
-                self.confidence_threshold
-            ),
-            "min_repetitions": (
-                self.min_repetitions
-            ),
+            "importance_threshold": self.importance_threshold,
+            "confidence_threshold": self.confidence_threshold,
+            "min_repetitions": self.min_repetitions,
         }
+
+    # monitor.py / runtime_monitor.py's generic RuntimeMonitor._stats()
+    # helper looks for a `.statistics()` method on every organ it's
+    # handed -- alias it to status() rather than duplicating the dict,
+    # so this organ shows up in the live snapshot the same way every
+    # other organ does.
+    statistics = status
 
     # =============================================================
     # EVENT BUS

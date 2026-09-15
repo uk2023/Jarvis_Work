@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-=======
 // TypeScript definitions for JARVIS Organism Console & Cognitive OS
 
 export type AppTheme = 'dark' | 'light';
@@ -242,15 +240,18 @@ export interface ActivityHistoryItem {
 }
 
 // Chat Models for User and CLI views
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
 export interface ChatMessage {
   id: string;
   sessionId: string;
   sender: 'user' | 'jarvis';
   text: string;
   timestamp: string;
+  dateLabel?: string;
   source: 'web' | 'cli' | 'autonomous';
-  traceLog?: CognitiveTrace;
+  trace?: TurnTrace;
+  traceLog?: TraceSummary;
+  thinkingDurationSeconds?: number;
+  thinkingProcess?: string[];
   extractedFact?: {
     subject: string;
     predicate: string;
@@ -259,40 +260,17 @@ export interface ChatMessage {
   };
 }
 
-export interface CognitiveTrace {
-  traceId: string;
-  latencySeconds: number;
-  memoryLookupSeconds: number;
-  llmInferenceSeconds: number;
-  vectorMatches: Array<{
-    id: string;
-    subject: string;
-    predicate: string;
-    value: string;
-    similarity: number;
-  }>;
-  graphRelations: Array<{
-    subject: string;
-    predicate: string;
-    target: string;
-  }>;
-  learningPipelineStatus: 'validated' | 'queued' | 'consolidated';
-  typosCorrected?: Array<{ raw: string; corrected: string }>;
-}
-
-export type AppTheme = 'dark' | 'light';
-
-export interface ChatSession {
+export interface SessionItem {
   sessionId: string;
   title: string;
   createdAt: string;
   updatedAt: string;
   pinned: boolean;
   msgCount: number;
-  category: 'Today' | 'Previous';
+  category: 'Today' | 'Yesterday' | 'Previous 7 Days' | 'Previous' | 'Older';
 }
 
-export type SessionItem = ChatSession;
+export type ChatSession = SessionItem;
 
 export interface EngramFact {
   id: string;
@@ -308,20 +286,6 @@ export interface EngramFact {
   updatedAt: number;
   faissId: number;
   status: 'ACCEPTED' | 'CANDIDATE' | 'REJECTED';
-}
-
-export interface GraphNode {
-  id: string;
-  label: string;
-  type: 'subject' | 'value' | 'concept';
-  color?: string;
-}
-
-export interface GraphEdge {
-  source: string;
-  target: string;
-  predicate: string;
-  confidence?: number;
 }
 
 export interface OrganStatusInfo {
@@ -352,8 +316,6 @@ export interface EvolutionProposal {
   createdAt: number;
 }
 
-export type ActiveTab = 'chat' | 'matrix' | 'memory' | 'autonomy' | 'code';
-
 export interface OrganismTelemetry {
   pulseState: string;
   beatCount: number;
@@ -374,4 +336,96 @@ export interface PythonCodeFile {
   category: 'core' | 'memory' | 'learning' | 'orchestration' | 'autonomy' | 'backend' | 'config' | 'scripts';
   description: string;
   code: string;
+}
+
+export type ActiveTab = 'chat' | 'matrix' | 'memory' | 'autonomy' | 'code';
+
+// ==========================================
+// SECTION 4: NEW CAPABILITIES INTERFACES
+// ==========================================
+
+// 4a. Voice Control & Speech Settings
+export interface VoiceSettings {
+  pitch: number; // default 0.55
+  rate: number; // default 1.1
+  language: string; // default 'hi-IN'
+  engine: string;
+  spoken_replies: boolean;
+  whisper_fallback: boolean; // opt-in fallback to Whisper-via-Groq
+}
+
+export interface TTSEngine {
+  name: string;
+  label?: string;
+  default?: boolean;
+}
+
+// 4b. Organ Introspection (10 fixed questions)
+export interface OrganIntrospectionAnswers {
+  who_are_you: string;
+  responsibility: string;
+  received: string;
+  produced: string;
+  why: string;
+  evidence: string;
+  confidence: string;
+  state_changed: string;
+  persisted: string;
+  unverified: string;
+}
+
+export interface OrganIntrospectionItem {
+  organ_name: string;
+  displayName: string;
+  status: 'active' | 'standby' | 'degraded';
+  lastTurnId?: string;
+  answers: OrganIntrospectionAnswers;
+}
+
+// 4c. Overnight / Idle Learning Report
+export interface OvernightFinding {
+  id: string;
+  pattern_or_vocab: string;
+  evidence: string;
+  sandbox_tested: boolean;
+  test_passed: boolean;
+  pass_count: number;
+  fail_count: number;
+}
+
+export interface OvernightLogEntry {
+  timestamp: number;
+  reviewed_target: string;
+  findings: OvernightFinding[];
+  summary: string;
+  evidence_threshold_met: boolean;
+}
+
+// 4d. Self-Improvement Requests
+export interface ImprovementRequest {
+  id: string;
+  request_text: string;
+  timestamp: number;
+  scope: 'narrow' | 'broad'; // narrow: JARVIS can sandbox-test; broad: needs developer
+  status: 'pending' | 'sandbox_testing' | 'applied' | 'rejected' | 'needs_operator';
+  evidence?: string;
+  sourceSessionId?: string;
+}
+
+// 4e. Runtime / Uptime Telemetry
+export interface RuntimeInfo {
+  session_uptime_seconds: number; // this process only
+  cumulative_runtime_seconds: number; // all sessions ever, persisted
+  age_seconds: number; // time since first boot, includes offline time
+}
+
+// 4f. Safety Check History (Llama Prompt Guard 2)
+export interface SafetyCheckEntry {
+  id: string;
+  timestamp: number;
+  query_preview: string;
+  label: 'benign' | 'malicious';
+  score?: number;
+  action: 'flagged_only' | 'passed';
+  notes?: string;
 }

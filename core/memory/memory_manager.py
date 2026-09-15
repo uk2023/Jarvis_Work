@@ -117,9 +117,11 @@ class MemoryManager:
                 })
 
         except Exception as exc:
-            print(
-                f"[MemoryManager Restore Error] {exc}"
-            )
+            try:
+                from ..runtime.log import log_event
+                log_event("memory_manager", f"restore error: {exc}", level="error")
+            except Exception:
+                pass
 
     # =============================================================
     # EXPERIENCE
@@ -189,6 +191,7 @@ class MemoryManager:
         importance: float = 0.5,
         source: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        source_type: Optional[str] = None,
     ) -> Knowledge:
         """
         Create/update semantic knowledge and persist it.
@@ -202,6 +205,7 @@ class MemoryManager:
             importance=importance,
             source=source,
             tags=tags,
+            source_type=source_type,
         )
 
         # ---------------------------------------------------------
@@ -313,10 +317,9 @@ class MemoryManager:
         limit: int = 50,
     ) -> List[Knowledge]:
 
-        return self.semantic.find_by_subject(
+        return self.semantic.find(
             subject=subject,
-            limit=limit,
-        )
+        )[:limit]
 
     # =============================================================
     # GRAPH RELATIONS LOOKUP (fsaai integration)
@@ -351,7 +354,7 @@ class MemoryManager:
     def list_all_knowledge(self, limit: int = 500) -> List[Knowledge]:
         """All stored facts, newest-updated first (see
         SemanticMemory.list_all). Used by the web dashboard's memory
-        browser, which needs the full set, not a search subset."""
+        browser, which needs the full set, not a search result subset."""
         return self.semantic.list_all(limit=limit)
 
     def forget_knowledge(self, knowledge_id: str) -> bool:
@@ -421,10 +424,9 @@ class MemoryManager:
         graph_relations: List[Dict[str, Any]] = []
 
         if subject:
-            knowledge = self.semantic.find_by_subject(
+            knowledge = self.semantic.find(
                 subject=subject,
-                limit=knowledge_limit,
-            )
+            )[:knowledge_limit]
             graph_relations.extend(self.get_graph_relations(subject))
 
         elif query:
@@ -595,6 +597,16 @@ class MemoryManager:
         if self.store is not None:
 
             self.store.close()
+
+        # Was missing: semantic memory holds its own SQLite connection
+        # (now a single persistent one, see semantic_memory.py's
+        # _get_db_connection() fix) and it never got a shutdown signal
+        # at all, so its WAL was never checkpointed on exit either.
+        if self.semantic is not None and hasattr(self.semantic, "close"):
+            try:
+                self.semantic.close()
+            except Exception:
+                pass
 
     # =============================================================
     # EVENT BUS

@@ -4,6 +4,12 @@ import queue
 import threading
 from typing import Any, Callable, Dict, Optional
 
+try:
+    from ..runtime.log import log_event
+except ImportError:  # pragma: no cover - defensive, keeps this module standalone-importable
+    def log_event(tag: str, message: str, level: str = "info") -> None:
+        pass
+
 
 class AsyncLearningQueue:
     """
@@ -121,7 +127,7 @@ class AsyncLearningQueue:
             except Exception as exc:
                 self.failed += 1
                 self.last_error = str(exc)
-                print(f"[LearningQueue] background job failed: {exc}")
+                log_event("learning_queue", f"background job failed: {exc}", level="error")
             finally:
                 self._q.task_done()
 

@@ -4,11 +4,13 @@ All SQLite access lives here: connection setup, the write-serialization
 lock (the actual fix for "database is locked" / pin-rename-delete not
 working), and every read/write query used by the HTTP + websocket routes.
 """
+import json
 import os
 import sqlite3
 import threading
 import time
 import traceback
+from datetime import datetime
 
 from . import config
 from .ws_manager import debug_log, broadcast_to_clients
@@ -269,6 +271,126 @@ def get_history_rows(session_id: str):
     rows = cursor.fetchall()
     conn.close()
     return rows
+
+
+def _timestamp_to_epoch_ms(timestamp_str: str) -> int:
+    """config.get_local_ist_timestamp() writes 'YYYY-MM-DD HH:MM:SS.ffffff'
+    in IST -- parse that back into an epoch-ms int for the web frontend
+    (ActivityHistoryItem.startTime expects epoch millis, same units as
+    JS Date.now()). Returns 0 (never raises) if the row predates this
+    format or is otherwise unparseable, so one bad row can't break the
+    whole trace history endpoint."""
+    if not timestamp_str:
+        return 0
+    try:
+        dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=config.IST)
+        return int(dt.timestamp() * 1000)
+    except (ValueError, TypeError):
+        return 0
+
+
+def get_recent_traces(limit: int = 50):
+    """Every jarvis reply that has a real trace_log (the exact
+    brain.last_turn_trace JSON produced this turn -- see
+    backend/trace_utils.py), paired with the user message that
+    triggered it, most recent first, across ALL sessions. This is what
+    powers the web Trace Inspector's turn history -- the SAME per-turn
+    data cli.py's /trace_inspect and deep_inspector.py render, not a
+    second, simulated trace.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, session_id, sender, text, source, timestamp, trace_log
+            FROM chat_messages
+            WHERE sender = 'jarvis' AND trace_log IS NOT NULL AND trace_log != ''
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        jarvis_rows = cursor.fetchall()
+
+        results = []
+        for row in jarvis_rows:
+            try:
+                trace = json.loads(row["trace_log"])
+            except (ValueError, TypeError):
+                trace = None
+            if not isinstance(trace, dict):
+                continue
+
+            cursor.execute(
+                """
+                SELECT text FROM chat_messages
+                WHERE session_id = ? AND sender = 'user' AND id < ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (row["session_id"], row["id"]),
+            )
+            user_row = cursor.fetchone()
+
+            results.append({
+                "id": row["id"],
+                "session_id": row["session_id"],
+                "query": user_row["text"] if user_row else (trace.get("query") or ""),
+                "response": row["text"],
+                "source": row["source"],
+                "start_ms": _timestamp_to_epoch_ms(row["timestamp"]),
+                "trace": trace,
+            })
+        return results
+    finally:
+        conn.close()
+
+
+def get_trace_by_message_id(message_id):
+    """Single jarvis message row (by chat_messages.id) with its real
+    parsed trace -- backs GET /api/trace/{turn_id}."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, session_id, sender, text, source, timestamp, trace_log
+            FROM chat_messages
+            WHERE id = ? AND sender = 'jarvis'
+            """,
+            (message_id,),
+        )
+        row = cursor.fetchone()
+        if not row or not row["trace_log"]:
+            return None
+        try:
+            trace = json.loads(row["trace_log"])
+        except (ValueError, TypeError):
+            return None
+        if not isinstance(trace, dict):
+            return None
+
+        cursor.execute(
+            """
+            SELECT text FROM chat_messages
+            WHERE session_id = ? AND sender = 'user' AND id < ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (row["session_id"], row["id"]),
+        )
+        user_row = cursor.fetchone()
+
+        return {
+            "id": row["id"],
+            "session_id": row["session_id"],
+            "query": user_row["text"] if user_row else (trace.get("query") or ""),
+            "response": row["text"],
+            "source": row["source"],
+            "start_ms": _timestamp_to_epoch_ms(row["timestamp"]),
+            "trace": trace,
+        }
+    finally:
+        conn.close()
 
 
 def _create_new_session_impl(session_id: str):

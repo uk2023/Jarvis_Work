@@ -246,6 +246,42 @@ class KnowledgeBuilder:
         value = semantic["value"]
 
         # ---------------------------------------------------------
+        # Defense-in-depth plausibility gate.
+        #
+        # _extract_semantic_fact() above sources triples from several
+        # places -- explicit outcome/context fields, Semantic
+        # Understanding's own relations, or a conservative action/
+        # outcome fallback. Semantic Understanding already runs its own
+        # plausibility gate (SemanticUnderstandingEngine._is_plausible_fact)
+        # before it EVER yields a relation, but this is the single choke
+        # point every path through this class passes before a triple is
+        # written to the CANDIDATE knowledge store, so it is checked
+        # again here independently. This is what actually stops a
+        # triple like favourite -> "hai. but javascript pe aur react
+        # html ye sb b ata" from reaching storage even if a future
+        # caller feeds context/outcome fields directly, bypassing
+        # Semantic Understanding entirely.
+        # ---------------------------------------------------------
+
+        if not self._is_plausible_triple(subject, predicate, value):
+
+            self.rejected_count += 1
+            self.updated_at = time.time()
+
+            self._emit(
+                "KNOWLEDGE_REJECTED",
+                {
+                    "reason": "IMPLAUSIBLE_FACT_SHAPE",
+                    "event_type": event_type,
+                    "subject": str(subject)[:80],
+                    "predicate": str(predicate)[:80],
+                    "value": str(value)[:120],
+                },
+            )
+
+            return None
+
+        # ---------------------------------------------------------
         # Classify knowledge
         # ---------------------------------------------------------
 
@@ -365,6 +401,80 @@ class KnowledgeBuilder:
             "KNOWLEDGE_BUILT",
             candidate,
         )
+
+        # Process any ADDITIONAL relations from the SAME turn's semantic
+        # understanding. THE ACTUAL BUG THIS FIXES: step "3.5" above (a
+        # few lines up) already correctly reads context["semantic"]
+        # ["relations"] -- the multi-fact extraction fix made earlier
+        # this session genuinely produces a full LIST of relations when
+        # a message states more than one fact -- but this method still
+        # only ever converted the FIRST one into a candidate and
+        # silently dropped the rest, every single time. A message like
+        # "meri favourite hobby coding hai aur meri favourite sport
+        # cricket hai" extracted BOTH facts correctly, but only ever
+        # got as far as storing one of them. Reusing this same build()
+        # method recursively (with the next relation forced into
+        # outcome directly, so step 1 matches immediately without
+        # re-scanning the relations list) means every additional fact
+        # goes through the exact same confidence/importance/tags/
+        # classification logic as the first, not a separate, untested
+        # path.
+        additional_candidate_ids: List[str] = []
+        semantic_ctx = context.get("semantic")
+        if isinstance(semantic_ctx, dict):
+            relations = semantic_ctx.get("relations")
+            if isinstance(relations, list) and len(relations) > 1:
+                used_triple = (str(subject), str(predicate))
+                seen = {used_triple}
+                for relation in relations:
+                    if not isinstance(relation, dict):
+                        continue
+                    if not all(key in relation for key in ("subject", "predicate", "value")):
+                        continue
+                    rel_subject = str(relation["subject"]).strip()
+                    rel_predicate = str(relation["predicate"]).strip()
+                    if not rel_subject or not rel_predicate:
+                        continue
+                    key = (rel_subject, rel_predicate)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    forced_outcome = dict(outcome)
+                    forced_outcome["subject"] = rel_subject
+                    forced_outcome["predicate"] = rel_predicate
+                    forced_outcome["value"] = relation["value"]
+                    # THE ACTUAL BUG (found via a real, observed
+                    # evidence_count explosion: 66 -> 153 -> 253 for a
+                    # single fact, discovered by testing this exact
+                    # scenario): the recursive build() call below used
+                    # to receive the SAME context, unchanged -- so
+                    # INSIDE that recursive call, its OWN copy of this
+                    # same loop scanned context["semantic"]["relations"]
+                    # again, found the ORIGINAL (now-"other") relation
+                    # not yet in ITS fresh `seen` set, and recursively
+                    # called build() for THAT one -- which then found
+                    # THIS one not yet seen, and so on, back and forth,
+                    # until Python's recursion limit was hit and
+                    # silently swallowed by the except below. Directly
+                    # measured: build() was invoked 498 times for what
+                    # should have been exactly 2 relations. The fix:
+                    # strip "semantic" from the context passed to the
+                    # recursive call, so its own scan-for-additional-
+                    # relations step finds nothing and terminates after
+                    # building exactly the one candidate it was asked
+                    # to build.
+                    forced_context = {k: v for k, v in context.items() if k != "semantic"}
+                    try:
+                        sibling = self.build(
+                            experience={**experience, "context": forced_context, "action": action, "outcome": forced_outcome},
+                            evaluation=evaluation,
+                        )
+                    except Exception:
+                        sibling = None
+                    if isinstance(sibling, dict) and sibling.get("id"):
+                        additional_candidate_ids.append(sibling["id"])
+        if additional_candidate_ids:
+            candidate["additional_candidates"] = additional_candidate_ids
 
         return candidate
 
@@ -546,6 +656,45 @@ class KnowledgeBuilder:
     # =============================================================
 
     @staticmethod
+    def _is_plausible_triple(subject: Any, predicate: Any, value: Any) -> bool:
+        """Reject subject/predicate/value shapes that look like a mis-split
+        sentence fragment rather than an actual fact, independent of
+        which extraction path produced them. Mirrors (but does not
+        import, to keep this organ dependency-light per this class's
+        own module docstring) the checks in
+        SemanticUnderstandingEngine._is_plausible_fact."""
+
+        import re as _re
+
+        subject_text = str(subject or "").strip()
+        predicate_text = str(predicate or "").strip()
+        value_text = str(value or "").strip()
+
+        if not subject_text or not predicate_text or not value_text:
+            return False
+
+        # A sentence terminator followed by more text means the value
+        # bled past the end of the intended statement into the next one.
+        if _re.search(r"[.!?]\s*\S", value_text):
+            return False
+
+        if len(value_text) > 120:
+            return False
+
+        filler_words = {
+            "kya", "batao", "bataye", "bataiye", "lekin", "but",
+            "abhi", "pehle", "phla", "toh", "ok", "okay", "acha",
+        }
+        value_words = {w.strip(".,!?").lower() for w in value_text.split()}
+        if value_words & filler_words:
+            return False
+        predicate_words = {w.lower() for w in _re.split(r"[_\s]+", predicate_text) if w}
+        if predicate_words & filler_words:
+            return False
+
+        return True
+
+    @staticmethod
     def _extract_semantic_fact(
         event_type: str,
         context: Dict[str, Any],
@@ -666,6 +815,51 @@ class KnowledgeBuilder:
                             "value"
                         ],
                     }
+
+        # ---------------------------------------------------------
+        # 3.5. Semantic Understanding relations (ordinary chat turns)
+        #
+        # A normal USER_CHAT experience never has subject/predicate/
+        # value at the top level of context/outcome -- the Semantic
+        # Understanding layer already extracts exactly that structure
+        # into context["semantic"]["relations"], but nothing here was
+        # ever looking at it. That gap meant every ordinary "remember
+        # X" style statement got rejected as NO_STRUCTURED_FACT and
+        # only ever survived as raw episodic chat log text (which
+        # ages out once it leaves the recent-experiences window),
+        # never as a durable knowledge-graph fact. Use the first
+        # relation Semantic Understanding found, if any.
+        # ---------------------------------------------------------
+
+        semantic_ctx = context.get("semantic")
+
+        if isinstance(semantic_ctx, dict):
+
+            relations = semantic_ctx.get("relations")
+
+            if isinstance(relations, list):
+
+                for relation in relations:
+
+                    if not isinstance(relation, dict):
+                        continue
+
+                    if not all(
+                        key in relation
+                        for key in ("subject", "predicate", "value")
+                    ):
+                        continue
+
+                    subject = str(relation["subject"]).strip()
+                    predicate = str(relation["predicate"]).strip()
+
+                    if subject and predicate:
+
+                        return {
+                            "subject": subject,
+                            "predicate": predicate,
+                            "value": relation["value"],
+                        }
 
         # ---------------------------------------------------------
         # 4. Conservative action/outcome fallback

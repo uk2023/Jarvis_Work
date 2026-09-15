@@ -11,7 +11,7 @@ class Identity:
     NAME = "JARVIS"
     VERSION = "0.3.0"
     DESIGNATION = "Modular Cognitive Organism"
-    CREATOR = "Architect"
+    CREATOR = "UK"
     PURPOSE = (
         "To evolve autonomously, learn from experiences, "
         "and assist intelligently while maintaining internal consistency."

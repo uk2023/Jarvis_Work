@@ -111,6 +111,25 @@ class InternalState:
         now = time.time()
 
         self.updated_at = now
+        # THE ACTUAL IDLE-DETECTION BUG: this used to touch
+        # last_activity_at unconditionally on EVERY call to update(),
+        # regardless of what was actually being changed. Perception
+        # (last_perception=...) and Brain (last_route=...) both call
+        # update() as part of ordinary internal bookkeeping on every
+        # single turn -- that's real engineering telemetry, not a
+        # signal that "the USER is active right now". Because those
+        # calls kept re-stamping last_activity_at to "now", Heartbeat's
+        # idle detection (inactive_for = now - last_activity_at) almost
+        # never crossed the idle_threshold even when the person hadn't
+        # typed anything in a long time, so IdleLoop rarely got a real
+        # chance to run. Only touch last_activity_at when the caller
+        # explicitly means it (i.e. it's one of the changed keys) --
+        # cli.py's `jarvis.state.update(last_activity_at=now)` on every
+        # real user message is exactly that explicit signal; internal
+        # bookkeeping calls that don't mention it no longer smuggle in
+        # a side effect that resets the idle clock.
+        if "last_activity_at" not in changes:
+            return
         self.last_activity_at = now
 
     # =============================================================
@@ -137,7 +156,26 @@ class InternalState:
         self.event_count += 1
 
         self.updated_at = time.time()
-        self.last_activity_at = self.updated_at
+        # THE ROOT CAUSE of idle_loop never running, ever, including
+        # across a full idle overnight session: EventBus.emit() calls
+        # record_event() for EVERY event on the bus, and Heartbeat
+        # itself emits a "HEARTBEAT" event every 5 seconds (its own
+        # `interval`) as part of just staying alive -- completely
+        # independent of whether the user has done anything. With the
+        # previous unconditional `self.last_activity_at = self.updated_at`
+        # here, the heartbeat's own self-emission re-stamped
+        # last_activity_at to "now" every single beat, so
+        # `inactive_for = now - last_activity_at` could never exceed
+        # one heartbeat interval (~5s) -- it could NEVER reach the 30s
+        # idle_threshold, so `is_idle` could never become True, so
+        # IdleLoop.step() was never reachable, structurally, regardless
+        # of how long the process actually sat with no user input.
+        # "USER_INPUT" (see cli.py's jarvis.receive_event("USER_INPUT",
+        # ...)) is the one event name that genuinely means "a person
+        # just did something" -- only that should reset the idle clock;
+        # every other event here is internal engineering telemetry.
+        if event_name == "USER_INPUT":
+            self.last_activity_at = self.updated_at
 
     # =============================================================
     # USER INTERACTION

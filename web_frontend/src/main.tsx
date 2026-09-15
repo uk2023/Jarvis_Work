@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import { AppErrorBoundary } from './AppErrorBoundary.tsx';
 import './index.css';
+import './theme.css';
 
 // GLOBAL SAFETY NET. AppErrorBoundary catches errors thrown DURING
 // React's render/commit; this catches everything else that can still

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 class IdleLoop:
@@ -9,16 +9,14 @@ class IdleLoop:
     Autonomous maintenance loop, run periodically by Heartbeat when
     the organism has no active user interaction.
 
-    Safety model (unchanged from the original design intent):
-      1. Curiosity proposes *candidates* (never executes anything).
-      2. Planner turns the top candidate/goal into steps.
-      3. Any step with requires_confirmation=True is NOT executed here
-         — it is surfaced as a pending confirmation for the user.
-      4. Steps that are safe to run are handed to the provided
-         `executor` callback, and the outcome is logged as an episode.
+    Safety model:
+      1. Curiosity proposes candidates; it never executes anything.
+      2. Planner turns the selected goal into structured steps.
+      3. Confirmation-required steps are surfaced as pending confirmation.
+      4. Safe steps are handed to the Brain-owned executor.
 
-    This class contains no model-loading and no direct file/network
-    access itself — it only coordinates already-attached organs.
+    The executor is the Brain boundary. IdleLoop does not execute skills,
+    create experiences, or write learning records itself.
     """
 
     def __init__(
@@ -32,6 +30,12 @@ class IdleLoop:
         store=None,
         executor=None,
         max_actions_per_step: int = 1,
+        pattern_detector=None,
+        category_learner=None,
+        pattern_review_interval_seconds: float = 60.0,
+        identity=None,
+        semantic_memory=None,
+        standing_instructions=None,
     ):
         self.goal_manager = goal_manager
         self.curiosity = curiosity
@@ -42,40 +46,238 @@ class IdleLoop:
         self.store = store
         self.executor = executor
         self.max_actions_per_step = max_actions_per_step
-
         self.pending_confirmations: List[Dict[str, Any]] = []
+        self.identity = identity
+        # THE ACTUAL FIX (UK's explicit ask: idle time should genuinely
+        # "hunt for facts" and resolve uncertainty on its own, not just
+        # sit doing nothing): Curiosity.candidates()'s THIRD signal --
+        # "low-confidence knowledge worth re-checking", driven by its
+        # knowledge_gaps parameter -- was fully implemented but nothing
+        # anywhere ever called it with real data. step() below always
+        # called curiosity.candidates(state=self.state, goals=goals)
+        # with knowledge_gaps defaulting to [], so that entire signal
+        # was permanently dead: no goal, no curiosity trigger. Combined
+        # with the other two signals rarely firing (uncertainty tracking
+        # is sparse; there are usually no stalled goals to begin with),
+        # idle_loop.step() fell through to "no pending goals" almost
+        # every single cycle. semantic_memory (optional -- degrades to
+        # the old behaviour if not supplied) lets _find_knowledge_gaps()
+        # below feed it real low-confidence facts from durable memory.
+        self.semantic_memory = semantic_memory
+        # Standing (triggered) instructions -- see core/autonomy/
+        # standing_instructions.py + step() below, which is the actual
+        # producer-side fix for Scheduler.schedule() (2026-09-11
+        # roadmap Phase 3: it previously had a working due_tasks()
+        # consumer here but nothing anywhere ever called .schedule()).
+        self.standing_instructions = standing_instructions
+        # OVERNIGHT LEARNING (UK's explicit ask: idle time itself should
+        # drive real learning/evolution review, not sit doing nothing
+        # until a goal happens to exist, and the results should be
+        # reportable the next morning). pattern_detector/category_learner
+        # are optional -- if neither is wired, this degrades to a no-op,
+        # never an error.
+        self.pattern_detector = pattern_detector
+        self.category_learner = category_learner
+        self.pattern_review_interval_seconds = max(5.0, float(pattern_review_interval_seconds))
+        self._last_pattern_review_at: float = 0.0
+        self.overnight_log: List[Dict[str, Any]] = []
+
+    def _review_learning_patterns(self) -> Dict[str, Any]:
+        """The actual overnight-learning task: while genuinely idle
+        (not on every heartbeat tick -- gated by
+        pattern_review_interval_seconds so this never busy-loops),
+        review what fallback_pattern_detector and category_learner have
+        accumulated evidence for, and record what was found. This is
+        real analysis of real accumulated evidence, not a fabricated
+        "I learned something" claim -- if nothing has enough evidence
+        yet, that is exactly what gets reported, honestly."""
+        now = time.time()
+        if now - self._last_pattern_review_at < self.pattern_review_interval_seconds:
+            return {"reviewed": False}
+        self._last_pattern_review_at = now
+
+        findings: List[str] = []
+        if self.pattern_detector is not None:
+            try:
+                candidates = self.pattern_detector.promotion_candidates()
+                for c in candidates:
+                    findings.append(
+                        f"fallback pattern '{c.get('pattern_key', '?')}' has {c.get('occurrences', '?')} "
+                        f"successful occurrences -- worth proposing as a native rule"
+                    )
+            except Exception:
+                pass
+        if self.category_learner is not None:
+            try:
+                candidates = self.category_learner.promotion_candidates()
+                for c in candidates:
+                    word = c.get("word", "?")
+                    examples = c.get("example_inputs") or []
+                    # THE ACTUAL SANDBOX TEST UK asked for: don't just
+                    # LOG that a candidate exists -- genuinely test it
+                    # (see core/learning/category_word_learner.py's
+                    # sandbox_test_category_word(), isolated, never
+                    # touching the real live extraction engine) against
+                    # the REAL example sentences that produced this
+                    # candidate, and report the real PASS/FAIL evidence.
+                    try:
+                        from ..learning.category_word_learner import sandbox_test_category_word
+                        test_result = sandbox_test_category_word(word, examples) if examples else {"tested": False}
+                    except Exception:
+                        test_result = {"tested": False}
+                    if test_result.get("tested"):
+                        verdict = "PASSED" if test_result.get("all_passed") else "MIXED RESULTS"
+                        findings.append(
+                            f"category word '{word}' seen {c.get('occurrences', '?')} times via LLM -- "
+                            f"sandbox tested: {verdict} ({test_result.get('cases_passed', 0)}/{test_result.get('cases_tested', 0)} cases) -- "
+                            f"ready for your approval to add to native vocabulary"
+                        )
+                        if test_result.get("all_passed"):
+                            self.category_learner.mark_proposed(word)
+                    else:
+                        findings.append(
+                            f"category word '{word}' seen {c.get('occurrences', '?')} times "
+                            f"via LLM -- worth adding to native vocabulary (not yet sandbox tested)"
+                        )
+            except Exception:
+                pass
+
+        entry = {
+            "timestamp": now,
+            "type": "pattern_review",
+            "findings": findings,
+            "summary": (
+                f"reviewed learning patterns: {len(findings)} candidate(s) worth promoting"
+                if findings else "reviewed learning patterns: nothing new met the evidence threshold yet"
+            ),
+        }
+        self.overnight_log.append(entry)
+        if len(self.overnight_log) > 200:
+            self.overnight_log = self.overnight_log[-200:]
+
+        # Same periodic gate also checkpoints JARVIS's own cumulative
+        # runtime (see JarvisIdentity.checkpoint_runtime()) -- riding
+        # the SAME time-gated cycle rather than adding a second timer,
+        # so a crashed/killed process (common on a phone) still has
+        # most of its uptime saved as of the last checkpoint, not only
+        # on a clean shutdown that may never happen.
+        if self.identity is not None:
+            try:
+                self.identity.checkpoint_runtime()
+            except Exception:
+                pass
+
+        return {"reviewed": True, "findings_count": len(findings)}
+
+    def get_overnight_report(self, since: float = 0.0) -> Dict[str, Any]:
+        """What idle time actually did since `since` (a timestamp) --
+        the real, honest content of a "good morning, what did you do
+        while I was away" report. Never fabricates activity: if
+        overnight_log is empty for the window, that is stated plainly."""
+        entries = [e for e in self.overnight_log if e.get("timestamp", 0) >= since]
+        total_findings = sum(len(e.get("findings", [])) for e in entries)
+        return {
+            "cycles_reviewed": len(entries),
+            "total_findings": total_findings,
+            "entries": entries,
+        }
+
+    def _find_knowledge_gaps(self, scan_limit: int = 200, max_gaps: int = 15) -> List[Dict[str, Any]]:
+        """Real low-confidence facts already sitting in durable semantic
+        memory -- genuine candidates for JARVIS to "re-check" during
+        idle time, not fabricated ones. Read-only; never mutates memory.
+        Degrades to an empty list (same as before this fix) if no
+        semantic memory was supplied, so this is purely additive."""
+        if self.semantic_memory is None:
+            return []
+        threshold = getattr(self.curiosity, "min_confidence", 0.55) if self.curiosity is not None else 0.55
+        try:
+            items = self.semantic_memory.list_all(limit=scan_limit) or []
+        except Exception:
+            return []
+        gaps = []
+        for item in items:
+            confidence = getattr(item, "confidence", None)
+            if not isinstance(confidence, (int, float)) or confidence >= threshold:
+                continue
+            gaps.append({
+                "subject": getattr(item, "subject", "?"),
+                "confidence": float(confidence),
+                "knowledge_id": getattr(item, "knowledge_id", None),
+            })
+        gaps.sort(key=lambda g: g["confidence"])
+        return gaps[:max_gaps]
 
     def step(self) -> Dict[str, Any]:
         """Run exactly one idle cycle. Called by Heartbeat/Scheduler."""
-
-        # ---------------------------------------------------------
-        # 0) Run anything the Scheduler says is due first.
-        # ---------------------------------------------------------
         if self.scheduler is not None:
+            # Standing instructions: due_now() is a pure wall-clock
+            # comparison (idempotent, no side effects) -- pushing each
+            # due item through scheduler.schedule() rather than
+            # executing it inline here is the actual fix for
+            # Scheduler.schedule() never having a caller anywhere in
+            # the codebase. due_tasks() immediately below (run_at=now)
+            # picks it back up the SAME cycle, so nothing sits waiting
+            # an extra tick.
+            if self.standing_instructions is not None:
+                try:
+                    for due in self.standing_instructions.due_now():
+                        self.scheduler.schedule(
+                            task={
+                                "action": "standing_instruction_fire",
+                                "knowledge_id": due.get("knowledge_id"),
+                                "action_text": due.get("action_text"),
+                            },
+                            run_at=time.time(),
+                        )
+                except Exception:
+                    pass
             for task in self.scheduler.due_tasks():
                 self._run_task(task)
 
-        # ---------------------------------------------------------
-        # 1) Nothing to do if no goal_manager/curiosity attached yet.
-        # ---------------------------------------------------------
+        # Overnight learning review -- runs independently of the goal/
+        # curiosity system below, time-gated so it happens periodically
+        # during genuine idle stretches rather than once and never
+        # again, or on every single heartbeat tick.
+        self._review_learning_patterns()
+
         if self.goal_manager is None or self.curiosity is None or self.planner is None:
             return self._noop("autonomy organs not fully attached")
 
         goals = self.goal_manager.pending()
+        knowledge_gaps = self._find_knowledge_gaps()
+        candidates = self.curiosity.candidates(state=self.state, goals=goals, knowledge_gaps=knowledge_gaps)
 
-        candidates = self.curiosity.candidates(state=self.state, goals=goals)
-
-        # Curiosity-sourced candidates become goals the first time
-        # they're seen, so progress on them is tracked consistently.
+        # Dedup curiosity-origin candidates against already-pending goals
+        # with the same reason text. Without this, an idle organism whose
+        # uncertainty (or another recurring signal) stays elevated will
+        # re-propose the *same* candidate on every heartbeat tick forever
+        # -- each one a brand-new goal, and each goal add/update triggers
+        # a full re-serialize + SQLite write of the entire goal list
+        # (GoalManager._save). That is an unbounded, un-throttled write
+        # loop running every couple of seconds in the background, which
+        # is real, measurable CPU/disk/battery drain on a phone even
+        # while the user isn't interacting at all. Blueprint section 24
+        # requires idle learning to use controlled boundaries; an
+        # un-deduplicated proposal loop is exactly the uncontrolled case
+        # that rule exists to prevent.
+        existing_reasons = {
+            str(g.get("text", "")).strip().lower()
+            for g in goals
+            if g.get("origin") == "curiosity"
+        }
         for candidate in candidates:
+            reason_key = str(candidate.get("reason", "")).strip().lower()
+            if reason_key and reason_key in existing_reasons:
+                continue
             self.goal_manager.add(
                 text=candidate["reason"],
                 priority=candidate.get("priority", 0.5),
                 origin="curiosity",
             )
+            existing_reasons.add(reason_key)
 
         target = self.goal_manager.next_goal()
-
         if target is None:
             return self._background_maintenance("no pending goals")
 
@@ -149,70 +351,82 @@ class IdleLoop:
 
         self.goal_manager.update_status(target["id"], "active")
 
-        steps = self.planner.plan(target)
+        # A goal owns its plan and cursor so repeated idle cycles continue
+        # from the next step instead of executing step 1 forever.
+        plan = target.get("plan") or []
+        step_index = int(target.get("step_index", 0))
+        if not plan or step_index >= len(plan):
+            plan = self.planner.plan(target)
+            self.goal_manager.set_plan(target["id"], plan)
+            target = self.goal_manager._find(target["id"]) or target
+            step_index = int(target.get("step_index", 0))
 
         executed = []
         confirmations_needed = []
 
-        for step in steps[: self.max_actions_per_step]:
-            if step.get("requires_confirmation"):
-                confirmations_needed.append(step)
+        for planned_step in plan[step_index : step_index + self.max_actions_per_step]:
+            if planned_step.get("requires_confirmation"):
+                confirmations_needed.append(planned_step)
                 self.pending_confirmations.append(
-                    {**step, "goal_id": target["id"], "queued_at": time.time()}
+                    {**planned_step, "goal_id": target["id"], "queued_at": time.time()}
                 )
                 continue
 
-            outcome = self._run_step(target, step)
+            outcome = self._run_step(target, planned_step)
             executed.append(outcome)
 
-        if executed and not confirmations_needed:
-            self.goal_manager.add_progress(
-                target["id"], f"Executed: {[s['action'] for s in executed]}"
-            )
+            if outcome.get("success") is True:
+                self.goal_manager.advance_step(target["id"])
+                self.goal_manager.add_progress(
+                    target["id"], f"Executed: {planned_step.get('action')}"
+                )
+            else:
+                # Failed work remains at the current cursor so a later cycle
+                # can retry/recover instead of falsely completing the goal.
+                self.goal_manager.add_progress(
+                    target["id"], f"Failed: {planned_step.get('action')}"
+                )
 
-        if not steps:
+        refreshed = self.goal_manager._find(target["id"]) or target
+        refreshed_index = int(refreshed.get("step_index", 0))
+        if plan and refreshed_index >= len(plan):
             self.goal_manager.update_status(target["id"], "completed")
+        elif confirmations_needed:
+            self.goal_manager.add_progress(
+                target["id"], "Awaiting explicit confirmation before continuing."
+            )
 
         result = {
             "action": "IDLE_CYCLE",
             "goal": target["text"],
+            "goal_id": target["id"],
+            "step_index": refreshed_index,
             "executed": executed,
             "awaiting_confirmation": confirmations_needed,
         }
-
         self._publish("IDLE_CYCLE_COMPLETE", result)
         return result
 
-    # =============================================================
-    # INTERNAL
-    # =============================================================
-
     def _run_step(self, goal: Dict[str, Any], step: Dict[str, Any]) -> Dict[str, Any]:
-        outcome = {"step": step, "status": "skipped", "result": None}
-
         if self.executor is None:
-            outcome["status"] = "no_executor"
-            return outcome
+            return {"success": False, "status": "no_executor", "step": step}
 
         try:
-            result = self.executor(step)
-            outcome["status"] = "success"
-            outcome["result"] = result
+            return self.executor(step, goal=goal)
+        except TypeError as exc:
+            # Compatibility with older executor callables that accept only
+            # the step. The production Brain executor accepts the goal too.
+            try:
+                return self.executor(step)
+            except Exception as fallback_exc:
+                return {"success": False, "status": "error", "result": str(fallback_exc), "step": step}
         except Exception as exc:
-            outcome["status"] = "error"
-            outcome["result"] = str(exc)
-
-        self._log_episode(goal, step, outcome)
-        return outcome
+            return {"success": False, "status": "error", "result": str(exc), "step": step}
 
     def _run_task(self, task: Dict[str, Any]) -> None:
         if self.executor is None:
             return
-<<<<<<< HEAD
-
-=======
         is_instruction = task.get("action") == "standing_instruction_fire"
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
         try:
             self.executor(task)
             # SILENT-FIRING FIX (2026-09-13, UK: "standing instruction
@@ -232,35 +446,6 @@ class IdleLoop:
                     outcome="fired",
                 )
         except Exception as exc:
-<<<<<<< HEAD
-            print(f"[IdleLoop] Scheduled task failed: {exc}")
-
-    def _log_episode(
-        self,
-        goal: Dict[str, Any],
-        step: Dict[str, Any],
-        outcome: Dict[str, Any],
-    ) -> None:
-        if self.store is None:
-            return
-
-        try:
-            self.store.save_episode(
-                {
-                    "episode_id": f"idle-{time.time()}",
-                    "timestamp": time.time(),
-                    "event_type": "AUTONOMOUS_STEP",
-                    "context": {"goal": goal.get("text")},
-                    "action": step,
-                    "outcome": outcome,
-                    "importance": 0.3,
-                    "confidence": 1.0 if outcome["status"] == "success" else 0.4,
-                    "source": "idle_loop",
-                }
-            )
-        except Exception as exc:
-            print(f"[IdleLoop] Failed to log episode: {exc}")
-=======
             if is_instruction:
                 try:
                     from ..orchestration.companion_tools import record_instruction_firing
@@ -274,7 +459,6 @@ class IdleLoop:
                 except Exception:
                     pass
             self._publish("IDLE_SCHEDULED_TASK_FAILED", {"task": task, "error": str(exc)})
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
     def _noop(self, reason: str) -> Dict[str, Any]:
         result = {"action": "NO_OP", "reason": reason}
@@ -285,10 +469,14 @@ class IdleLoop:
         if self.events is None:
             return
 
-        emit = getattr(self.events, "emit", None)
-
+        emit = getattr(self.events, "safe_emit", None) or getattr(self.events, "emit", None)
         if callable(emit):
             try:
-                emit(name, payload)
-            except Exception as exc:
-                print(f"[IdleLoop EventBus Error] {name}: {exc}")
+                emit(name, payload, source="idle_loop")
+            except TypeError:
+                try:
+                    emit(name, payload)
+                except Exception:
+                    pass
+            except Exception:
+                pass

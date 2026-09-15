@@ -38,7 +38,7 @@ export const OrganMatrix: React.FC<OrganMatrixProps> = ({
   const getIconForOrgan = (name: string) => {
     switch (name.toLowerCase()) {
       case 'brain':
-        return <BrainIcon className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />;
+        return <BrainIcon className="w-4 h-4 text-brand-500 dark:text-brand-400" />;
       case 'memory':
         return <Database className="w-4 h-4 text-purple-600 dark:text-purple-400" />;
       case 'experience_engine':
@@ -54,7 +54,7 @@ export const OrganMatrix: React.FC<OrganMatrixProps> = ({
       case 'evolution':
         return <Cpu className="w-4 h-4 text-red-600 dark:text-red-400" />;
       case 'llm':
-        return <Terminal className="w-4 h-4 text-cyan-600 dark:text-cyan-300" />;
+        return <Terminal className="w-4 h-4 text-brand-600 dark:text-brand-300" />;
       default:
         return <Heart className="w-4 h-4 text-red-600 dark:text-red-400" />;
     }
@@ -75,16 +75,16 @@ export const OrganMatrix: React.FC<OrganMatrixProps> = ({
       >
         <div
           className={`absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl pointer-events-none ${
-            isDark ? 'bg-cyan-500/10' : 'bg-cyan-500/5'
+            isDark ? 'bg-brand-500/10' : 'bg-brand-500/5'
           }`}
         />
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative z-10">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <div className="w-2.5 h-2.5 rounded-full bg-cyan-500 animate-pulse shadow-[0_0_8px_#22d3ee]"></div>
+              <div className="w-2.5 h-2.5 rounded-full bg-brand-500 animate-pulse shadow-[0_0_8px_#22d3ee]"></div>
               <h2
                 className={`text-sm sm:text-base font-bold tracking-widest uppercase font-mono ${
-                  isDark ? 'text-cyan-50' : 'text-slate-900'
+                  isDark ? 'text-brand-50' : 'text-slate-900'
                 }`}
               >
                 NEURAL SUBSYSTEMS & ORGAN MATRIX
@@ -103,25 +103,25 @@ export const OrganMatrix: React.FC<OrganMatrixProps> = ({
             <div
               className={`border px-3.5 py-1.5 rounded-xl font-mono text-xs ${
                 isDark
-                  ? 'bg-black/40 backdrop-blur-xl border-white/10 text-cyan-200'
+                  ? 'bg-black/40 backdrop-blur-xl border-white/10 text-brand-200'
                   : 'bg-slate-100 border-slate-200 text-slate-800'
               }`}
             >
-              <span className={isDark ? 'text-white/40 text-[10px] uppercase' : 'text-slate-500 text-[10px] uppercase'}>
+              <span className={isDark ? 'text-white/40 text-xs uppercase' : 'text-slate-500 text-xs uppercase'}>
                 ORGANISM PULSE:{' '}
               </span>
-              <span className="text-cyan-600 dark:text-cyan-400 font-bold">{bpm} BPM</span>
+              <span className="text-brand-600 dark:text-brand-400 font-bold">{bpm} BPM</span>
               <span className={isDark ? 'text-white/30 ml-2' : 'text-slate-400 ml-2'}>#{beatCount}</span>
             </div>
             <button
               onClick={onTriggerPulse}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold font-mono flex items-center gap-1.5 transition cursor-pointer ${
                 isDark
-                  ? 'bg-cyan-400/15 hover:bg-cyan-400/25 text-cyan-200 border border-cyan-400/40 shadow-[0_0_12px_rgba(34,211,238,0.2)]'
-                  : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-300 shadow-sm'
+                  ? 'bg-brand-400/15 hover:bg-brand-400/25 text-brand-200 border border-brand-400/40 shadow-[0_0_12px_rgba(34,211,238,0.2)]'
+                  : 'bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-300 shadow-sm'
               }`}
             >
-              <Radio className="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400" />
+              <Radio className="w-3.5 h-3.5 text-brand-500 dark:text-brand-400" />
               <span>Stimulate Pulse</span>
             </button>
           </div>
@@ -138,8 +138,8 @@ export const OrganMatrix: React.FC<OrganMatrixProps> = ({
             transition={{ delay: index * 0.04 }}
             className={`border p-4 rounded-2xl transition-all flex flex-col justify-between group ${
               isDark
-                ? 'bg-[#0f121d]/80 backdrop-blur-xl border-white/10 hover:border-cyan-400/40 shadow-xl'
-                : 'bg-white border-slate-200/90 hover:border-cyan-400 shadow-sm'
+                ? 'bg-[#0f121d]/80 backdrop-blur-xl border-white/10 hover:border-brand-400/40 shadow-xl'
+                : 'bg-white border-slate-200/90 hover:border-brand-400 shadow-sm'
             }`}
           >
             <div>
@@ -161,7 +161,7 @@ export const OrganMatrix: React.FC<OrganMatrixProps> = ({
                       {organ.name.replace('_', ' ')}
                     </h3>
                     <span
-                      className={`text-[10px] font-mono ${
+                      className={`text-xs font-mono ${
                         isDark ? 'text-white/40' : 'text-slate-400'
                       }`}
                     >
@@ -171,7 +171,7 @@ export const OrganMatrix: React.FC<OrganMatrixProps> = ({
                 </div>
 
                 <span
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1 border ${
+                  className={`px-2 py-0.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1 border ${
                     isDark
                       ? 'bg-green-400/10 text-green-400 border-green-400/30'
                       : 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -191,14 +191,14 @@ export const OrganMatrix: React.FC<OrganMatrixProps> = ({
             </div>
 
             <div
-              className={`pt-2.5 border-t flex items-center justify-between text-[11px] font-mono ${
+              className={`pt-2.5 border-t flex items-center justify-between text-xs font-mono ${
                 isDark ? 'border-white/10' : 'border-slate-100'
               }`}
             >
               <span className={isDark ? 'text-white/40' : 'text-slate-400'}>Diagnostics:</span>
               <span
                 className={`font-semibold ${
-                  isDark ? 'text-cyan-300' : 'text-cyan-700'
+                  isDark ? 'text-brand-300' : 'text-brand-700'
                 }`}
               >
                 {organ.metrics}
@@ -218,21 +218,21 @@ export const OrganMatrix: React.FC<OrganMatrixProps> = ({
       >
         <h4
           className={`font-bold flex items-center gap-2 uppercase tracking-wider ${
-            isDark ? 'text-cyan-300' : 'text-cyan-700'
+            isDark ? 'text-brand-300' : 'text-brand-700'
           }`}
         >
-          <GitBranch className="w-4 h-4 text-cyan-500 dark:text-cyan-400" /> Real-time Execution Flow Pipeline
+          <GitBranch className="w-4 h-4 text-brand-500 dark:text-brand-400" /> Real-time Execution Flow Pipeline
         </h4>
         <p
-          className={`text-[11px] leading-relaxed ${
+          className={`text-xs leading-relaxed ${
             isDark ? 'text-white/60' : 'text-slate-600'
           }`}
         >
           <code
             className={`px-1.5 py-0.5 rounded border ${
               isDark
-                ? 'text-cyan-200 bg-white/5 border-white/10'
-                : 'text-cyan-800 bg-cyan-50 border-cyan-200'
+                ? 'text-brand-200 bg-white/5 border-white/10'
+                : 'text-brand-800 bg-brand-50 border-brand-200'
             }`}
           >
             USER INPUT
@@ -241,8 +241,8 @@ export const OrganMatrix: React.FC<OrganMatrixProps> = ({
           <code
             className={`px-1.5 py-0.5 rounded border ${
               isDark
-                ? 'text-cyan-200 bg-white/5 border-white/10'
-                : 'text-cyan-800 bg-cyan-50 border-cyan-200'
+                ? 'text-brand-200 bg-white/5 border-white/10'
+                : 'text-brand-800 bg-brand-50 border-brand-200'
             }`}
           >
             Memory Vector Retrieval (FAISS + Graph)
@@ -251,18 +251,18 @@ export const OrganMatrix: React.FC<OrganMatrixProps> = ({
           <code
             className={`px-1.5 py-0.5 rounded border ${
               isDark
-                ? 'text-cyan-200 bg-white/5 border-white/10'
-                : 'text-cyan-800 bg-cyan-50 border-cyan-200'
+                ? 'text-brand-200 bg-white/5 border-white/10'
+                : 'text-brand-800 bg-brand-50 border-brand-200'
             }`}
           >
-            Qwen 3B Single Inference Call
+            Native Pipeline / Groq Fallback Call
           </code>{' '}
           ➔{' '}
           <code
             className={`px-1.5 py-0.5 rounded border ${
               isDark
-                ? 'text-cyan-200 bg-white/5 border-white/10'
-                : 'text-cyan-800 bg-cyan-50 border-cyan-200'
+                ? 'text-brand-200 bg-white/5 border-white/10'
+                : 'text-brand-800 bg-brand-50 border-brand-200'
             }`}
           >
             Instant Response to User

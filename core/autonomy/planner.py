@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
+from ..runtime.log import log_event
+
 
 class Planner:
     """
@@ -138,7 +140,7 @@ class Planner:
             return cleaned or self._fallback_step(text)
 
         except Exception as exc:
-            print(f"[Planner] LLM planning failed: {exc}")
+            log_event("planner", f"LLM planning failed: {exc}", level="warning")
             return self._fallback_step(text)
 
     @staticmethod

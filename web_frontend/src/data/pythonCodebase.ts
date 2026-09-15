@@ -24,7 +24,7 @@ class Brain:
     Architectural Optimizations:
     1. Synchronous ultra-fast response to User (<0.5s local / cloud).
     2. Non-blocking Asynchronous Background Learning Queue:
-       USER -> RETRIEVE -> QWEN INFERENCE -> RETURN RESPONSE IMMEDIATELY
+       USER -> RETRIEVE -> NATIVE/FALLBACK INFERENCE -> RETURN RESPONSE IMMEDIATELY
        └─> Async Background Thread: ExperienceEngine -> SelfEvaluator -> KnowledgeBuilder -> Acceptance -> DB
     3. Hinglish & Typo Normalizer (handles phonetics like "nan" -> "naam", "xhahta" -> "chahta").
     4. Auto-reconsolidation: Prevents duplicated memory triples and updates evidence/confidence in-place.
@@ -904,26 +904,23 @@ class Curiosity:
     filename: 'download.sh',
     path: 'download.sh',
     category: 'scripts',
-    description: 'Shell script to download the ONNX Embedding Model, Tokenizer, and Qwen 2.5 3B Instruct Q4_K_M GGUF model.',
+    description: 'Shell script to download the ONNX Embedding Model and Tokenizer for offline FAISS vector indices.',
     code: `#!/usr/bin/env bash
 # ==============================================================================
-# JARVIS ORGANISM - MODEL DOWNLOADER SCRIPT (Android 8GB RAM / PRoot Ready)
+# JARVIS ORGANISM - DEPENDENCY DOWNLOADER SCRIPT (Android 8GB RAM / PRoot Ready)
 # ==============================================================================
 set -euo pipefail
 
 mkdir -p models database
 
-echo ">>> [1/3] Downloading Fast ONNX Embedding Model (~45 MB)..."
+echo ">>> [1/2] Downloading Fast ONNX Embedding Model (~45 MB)..."
 curl -L --progress-bar -o "all-MiniLM-L6-v2.onnx" "https://huggingface.co/xenova/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx"
 
-echo ">>> [2/3] Downloading Tokenizer Configuration (~700 KB)..."
+echo ">>> [2/2] Downloading Tokenizer Configuration (~700 KB)..."
 curl -L --progress-bar -o "tokenizer.json" "https://huggingface.co/xenova/all-MiniLM-L6-v2/resolve/main/tokenizer.json"
 
-echo ">>> [3/3] Downloading Qwen2.5-3B-Instruct (Q4_K_M Quantized GGUF ~1.9 GB)..."
-curl -L --progress-bar -o "models/qwen2.5-3b-instruct-q4_k_m.gguf" "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf"
-
 echo "=========================================================================="
-echo "✔ All Models Downloaded Successfully! Run 'python cli.py' to wake JARVIS."
+echo "✔ Core Embeddings Ready! Native Cognitive Pipeline + Groq Fallback Armed."
 echo "=========================================================================="
 `
   },
@@ -945,7 +942,7 @@ os.environ["OMP_NUM_THREADS"] = "2"
 os.environ["OPENBLAS_NUM_THREADS"] = "2"
 
 from core.organism.bootstrap import start_jarvis, stop_jarvis
-from core.orchestration.llm_bridge import LlamaCppBridge
+from core.orchestration.llm_bridge import FallbackBridge
 
 console = Console()
 
@@ -955,8 +952,8 @@ def main():
     jarvis = start_jarvis(heartbeat_interval=2.0, idle_threshold=10.0)
     brain = jarvis.get_organ("brain")
     if brain:
-        brain.llm = LlamaCppBridge(model_filename="qwen2.5-3b-instruct-q4_k_m.gguf", n_threads=4, n_ctx=4096)
-        console.print("[bold green]✔ Neural Bridge Online (Qwen2.5-3B-Instruct).[/bold green]\\n")
+        brain.llm = FallbackBridge(primary="native", fallback="groq/openai/gpt-oss-120b")
+        console.print("[bold green]✔ Neural Bridge Online (Native Pipeline + Groq Fallback).[/bold green]\\n")
 
     try:
         while True:

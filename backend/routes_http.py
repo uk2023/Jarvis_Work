@@ -11,8 +11,22 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from . import config, database
 from . import integration
 from .ws_manager import debug_log, broadcast_to_clients, thinking_snapshot, is_thinking, clear_thinking
+from .trace_utils import real_turn_trace
 
 router = APIRouter()
+
+
+@router.get("/api/health")
+async def health_check():
+    """Plain liveness probe for the web frontend's connection indicator
+    (WebSocketStatusIndicator.tsx / api.testConnection()). Separate from
+    /api/status on purpose: this must answer even if the organism itself
+    hasn't finished booting yet, so the UI can distinguish "backend is up,
+    organism still starting" from "backend unreachable"."""
+    return JSONResponse({
+        "status": "ok",
+        "organism_attached": integration.jarvis is not None,
+    })
 
 
 @router.get("/api/status")
@@ -49,7 +63,7 @@ async def get_status():
         scheduler = jarvis.get_organ("scheduler") if hasattr(jarvis, "get_organ") else None
         scheduler_status = scheduler.snapshot() if scheduler and hasattr(scheduler, "snapshot") else {}
 
-        last_turn_trace = getattr(brain, "last_turn_trace", None) if brain else None
+        last_turn_trace = real_turn_trace(brain)
 
         return JSONResponse({
             "status": "success",

@@ -6,6 +6,8 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
+from ..runtime.log import log_event
+
 
 @dataclass
 class OrganismEvent:
@@ -197,9 +199,7 @@ class EventBus:
 
             except Exception as exc:
 
-                print(
-                    f"[EventBus State Error] {exc}"
-                )
+                log_event("event_bus", f"internal state update failed: {exc}", level="error")
 
         # Notify outside the lock.
         for callback in subscribers:
@@ -209,12 +209,7 @@ class EventBus:
 
             except Exception as exc:
 
-                print(
-                    f"[EventBus Subscriber Error] "
-                    f"{event.name}: {exc}"
-                )
-
-                traceback.print_exc()
+                log_event("event_bus", f"subscriber error on {event.name}: {exc}\n{traceback.format_exc()}", level="error")
 
         return event
 
@@ -242,10 +237,7 @@ class EventBus:
 
         except Exception as exc:
 
-            print(
-                f"[EventBus Emit Error] "
-                f"{event_name}: {exc}"
-            )
+            log_event("event_bus", f"emit error on {event_name}: {exc}", level="error")
 
             return None
 

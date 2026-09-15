@@ -1,25 +1,19 @@
 {
-  "gatekeeper": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-  "chat": "qwen2.5-3b-instruct-q4_k_m.gguf",
-  "reasoning": "deepshrink",
-  "offline_default": {
-    "engine": "llama_cpp",
-    "model_filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
-    "n_ctx": 4096,
-    "n_threads": 4,
-    "note": "q4_k_m 3B is roughly 2.0-2.2GB resident on an 8GB Android device, leaving room for the app + OS. If a device is tighter on RAM, drop n_ctx to 2048 first before switching to a smaller model -- context length costs more RAM growth than the base weights once chat history builds up."
+  "_locked_note": "These two model choices are LOCKED (per explicit decision, not auto-selected). Changing them means editing this file directly -- the code always reads from here, it never guesses or falls back to a different filename.",
+  "slm": {
+    "subdir": "SLM",
+    "model_filename": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    "n_ctx": 2048,
+    "n_threads": 2,
+    "download_url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    "role": "Narrow classification/disambiguation only (blueprint SLM tier, LEVEL 4/5) -- never full response generation. See core/orchestration/slm_bridge.py. ~800MB, real-device benchmark ~32 tok/s."
   },
-  "combined_call": {
-    "enabled": true,
-    "description": "generate_combined() asks the chat model for {response, memory} in a single call instead of a separate reply call + fact-extraction call. This is the primary latency/token reduction for the offline 3B model.",
-    "schema": {
-      "response": "string - natural in-character reply",
-      "memory": {
-        "has_fact": "boolean",
-        "subject": "string (only if has_fact)",
-        "predicate": "string (only if has_fact)",
-        "value": "string (only if has_fact)"
-      }
-    }
+  "offline_llm": {
+    "subdir": "Offline_LLM",
+    "model_filename": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+    "n_ctx": 2048,
+    "n_threads": 2,
+    "download_url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+    "role": "Full offline conversational fallback when Groq (online) is unavailable. Replaces the old 3B model, which real-device benchmarks put at roughly half this model's tokens/sec on CPU-only ARM. ~1GB, real-device benchmark ~17 tok/s."
   }
 }

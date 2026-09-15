@@ -13,7 +13,15 @@ Endpoint <-> frontend contract (see web_frontend/src/types.ts + App.tsx):
     GET    /api/memory/engrams        -> { engrams: EngramFact[] }
     POST   /api/memory/engrams        -> { engram: EngramFact }
     DELETE /api/memory/engrams/{id}   -> { status }
+    GET    /api/memory/pending_rules  -> { rules: PendingSelfRule[] }
+    POST   /api/memory/pending_rules/{id}/confirm  -> { status, rule }
+    POST   /api/memory/pending_rules/{id}/reject   -> { status, rule }
+    GET    /api/memory/pending_rules/{id}/explain  -> { rule, status, evidence }
+    GET    /api/memory/contested_facts -> { facts: ContestedFact[] }
+    POST   /api/memory/contested_facts/{id}/resolve -> { status, current_value }
     GET    /api/autonomy/state        -> { goals, proposals }
+    GET    /api/autonomy/standing_instructions     -> { instructions: StandingInstruction[] }
+    DELETE /api/autonomy/standing_instructions/{id} -> { status }
     POST   /api/autonomy/trigger-idle -> { goal: CuriosityGoal }
     POST   /api/chat                  -> { jarvisMessage: ChatMessage }
 """
@@ -31,6 +39,7 @@ from fastapi.responses import JSONResponse
 from . import database
 from . import integration
 from .ws_manager import debug_log
+from .trace_utils import real_turn_trace, turn_trace_to_json, turn_trace_summary, extracted_fact_from_trace
 from core.organism.organ_descriptions import describe_organ
 
 router = APIRouter()
@@ -66,6 +75,11 @@ def _knowledge_to_engram(item) -> dict:
         "importance": d.get("importance", 0.5),
         "evidenceCount": d.get("evidence_count", 1),
         "source": d.get("source") or "unknown",
+        # Provenance refinement (2026-09-11): distinguishes "verified"
+        # (externally checked / UK-confirmed) from "llm_unverified"
+        # (JARVIS's own guess, nothing checked it) vs "user_stated" vs
+        # "unknown" (legacy rows). See core/memory/semantic_memory.py.
+        "sourceType": d.get("source_type") or "unknown",
         "tags": d.get("tags") or [],
         "createdAt": int((d.get("created_at") or time.time()) * 1000),
         "updatedAt": int((d.get("updated_at") or time.time()) * 1000),
@@ -297,6 +311,142 @@ async def delete_engram(knowledge_id: str):
 
 
 # =====================================================================
+# SELF-AUTHORED RULES -- JARVIS-proposed rules awaiting UK's review
+# (see Brain.list_pending_self_rules/confirm_self_rule/reject_self_rule/
+# explain_self_rule in core/orchestration/brain.py). Previously only
+# reachable via cli.py's /pending_rules, /confirm_rule, /reject_rule --
+# this is the same data/actions, over HTTP, for the web frontend.
+# =====================================================================
+
+@router.get("/api/memory/pending_rules")
+async def list_pending_rules():
+    brain = integration.brain
+    if brain is None or not hasattr(brain, "list_pending_self_rules"):
+        return JSONResponse({"status": "success", "rules": []})
+    try:
+        return JSONResponse({"status": "success", "rules": brain.list_pending_self_rules()})
+    except Exception as e:
+        err_str = traceback.format_exc()
+        debug_log(f"list_pending_rules Error:\n{err_str}", "bold red")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@router.post("/api/memory/pending_rules/{knowledge_id}/confirm")
+async def confirm_pending_rule(knowledge_id: str):
+    brain = integration.brain
+    if brain is None or not hasattr(brain, "confirm_self_rule"):
+        return JSONResponse({"status": "error", "message": "Brain organ not connected."}, status_code=503)
+    try:
+        result = brain.confirm_self_rule(knowledge_id)
+        status_code = 200 if result.get("status") == "confirmed" else 404
+        return JSONResponse(result, status_code=status_code)
+    except Exception as e:
+        err_str = traceback.format_exc()
+        debug_log(f"confirm_pending_rule Error:\n{err_str}", "bold red")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@router.post("/api/memory/pending_rules/{knowledge_id}/reject")
+async def reject_pending_rule(knowledge_id: str):
+    brain = integration.brain
+    if brain is None or not hasattr(brain, "reject_self_rule"):
+        return JSONResponse({"status": "error", "message": "Brain organ not connected."}, status_code=503)
+    try:
+        result = brain.reject_self_rule(knowledge_id)
+        status_code = 200 if result.get("status") == "rejected" else 404
+        return JSONResponse(result, status_code=status_code)
+    except Exception as e:
+        err_str = traceback.format_exc()
+        debug_log(f"reject_pending_rule Error:\n{err_str}", "bold red")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@router.get("/api/memory/pending_rules/{knowledge_id}/explain")
+async def explain_pending_rule(knowledge_id: str):
+    brain = integration.brain
+    if brain is None or not hasattr(brain, "explain_self_rule"):
+        return JSONResponse({"status": "error", "message": "Brain organ not connected."}, status_code=503)
+    try:
+        result = brain.explain_self_rule(knowledge_id)
+        status_code = 404 if result.get("status") == "not_found" else 200
+        return JSONResponse(result, status_code=status_code)
+    except Exception as e:
+        err_str = traceback.format_exc()
+        debug_log(f"explain_pending_rule Error:\n{err_str}", "bold red")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+# =====================================================================
+# CONTESTED FACTS -- confidence/provenance-weighted contradiction
+# resolution (M6, 2026-09-11). See SemanticMemory.remember() and
+# Brain.list_contested_facts/resolve_contested_fact.
+# =====================================================================
+
+@router.get("/api/memory/contested_facts")
+async def list_contested_facts_route():
+    brain = integration.brain
+    if brain is None or not hasattr(brain, "list_contested_facts"):
+        return JSONResponse({"status": "success", "facts": []})
+    try:
+        return JSONResponse({"status": "success", "facts": brain.list_contested_facts()})
+    except Exception as e:
+        err_str = traceback.format_exc()
+        debug_log(f"list_contested_facts Error:\n{err_str}", "bold red")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@router.post("/api/memory/contested_facts/{knowledge_id}/resolve")
+async def resolve_contested_fact_route(knowledge_id: str, payload: dict):
+    brain = integration.brain
+    if brain is None or not hasattr(brain, "resolve_contested_fact"):
+        return JSONResponse({"status": "error", "message": "Brain organ not connected."}, status_code=503)
+    accept_new_value = bool((payload or {}).get("accept_new_value", False))
+    try:
+        result = brain.resolve_contested_fact(knowledge_id, accept_new_value=accept_new_value)
+        status_code = 404 if result.get("status") == "not_found" else 200
+        return JSONResponse(result, status_code=status_code)
+    except Exception as e:
+        err_str = traceback.format_exc()
+        debug_log(f"resolve_contested_fact Error:\n{err_str}", "bold red")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+# =====================================================================
+# STANDING INSTRUCTIONS -- daily time-triggers UK stated directly in
+# conversation (e.g. "roz subah good morning bolo"). See core/autonomy/
+# standing_instructions.py + Brain.list_standing_instructions/
+# remove_standing_instruction.
+# =====================================================================
+
+@router.get("/api/autonomy/standing_instructions")
+async def list_standing_instructions_route():
+    brain = integration.brain
+    if brain is None or not hasattr(brain, "list_standing_instructions"):
+        return JSONResponse({"status": "success", "instructions": []})
+    try:
+        return JSONResponse({"status": "success", "instructions": brain.list_standing_instructions()})
+    except Exception as e:
+        err_str = traceback.format_exc()
+        debug_log(f"list_standing_instructions Error:\n{err_str}", "bold red")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@router.delete("/api/autonomy/standing_instructions/{knowledge_id}")
+async def delete_standing_instruction_route(knowledge_id: str):
+    brain = integration.brain
+    if brain is None or not hasattr(brain, "remove_standing_instruction"):
+        return JSONResponse({"status": "error", "message": "Brain organ not connected."}, status_code=503)
+    try:
+        result = brain.remove_standing_instruction(knowledge_id)
+        status_code = 200 if result.get("status") == "removed" else 404
+        return JSONResponse(result, status_code=status_code)
+    except Exception as e:
+        err_str = traceback.format_exc()
+        debug_log(f"delete_standing_instruction Error:\n{err_str}", "bold red")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+# =====================================================================
 # AUTONOMY
 # =====================================================================
 
@@ -390,6 +540,13 @@ async def chat_v6(payload: dict, request: Request = None, authorization: Optiona
     SQLite chat history and build their trace from the same
     brain.last_turn_trace, so nothing here is simulated or duplicated
     logic that could drift from the CLI/websocket behaviour.
+
+    trace/traceLog below are the REAL brain.last_turn_trace (full) and
+    a real condensed summary of it (see trace_utils.py) -- previously
+    this read trace["vector_matches"]/trace["memory_signal"]/
+    trace["learning_queue"], none of which the real trace object ever
+    sets (see core/orchestration/brain.py's _trace()), so those fields
+    were always empty/zero regardless of what the turn actually did.
     """
     executor = integration.get_query_executor()
     if executor is None:
@@ -468,38 +625,6 @@ async def chat_v6(payload: dict, request: Request = None, authorization: Optiona
         reply = await asyncio.to_thread(executor, message, "web")
         reply_str = str(reply)
 
-<<<<<<< HEAD
-        trace = getattr(integration.brain, "last_turn_trace", None) if integration.brain else None
-        trace_log_payload = None
-        extracted_fact = None
-
-        if trace:
-            timings = trace.get("timings", {})
-            queue = trace.get("learning_queue", {})
-            pipeline_status = "queued"
-            if queue.get("pending", 0) == 0 and queue.get("processed", 0) > 0:
-                pipeline_status = "consolidated"
-
-            trace_log_payload = {
-                "traceId": f"trc-{int(trace.get('timestamp', time.time()) * 1000)}",
-                "latencySeconds": timings.get("total", 0.0),
-                "memoryLookupSeconds": timings.get("memory", 0.0),
-                "llmInferenceSeconds": timings.get("llm", 0.0),
-                "vectorMatches": trace.get("vector_matches", []),
-                "graphRelations": trace.get("graph_edges", []),
-                "learningPipelineStatus": pipeline_status,
-                "typosCorrected": trace.get("typos_corrected", []),
-            }
-
-            signal = trace.get("memory_signal")
-            if signal:
-                extracted_fact = {
-                    "subject": signal.get("subject"),
-                    "predicate": signal.get("predicate"),
-                    "value": signal.get("value"),
-                    "confidence": 0.7,
-                }
-=======
         trace = real_turn_trace(integration.brain)
 
         # IDENTITY-TAGGED TRACE (spec section 12). Recorded here, where
@@ -520,14 +645,13 @@ async def chat_v6(payload: dict, request: Request = None, authorization: Optiona
             pass
         trace_summary = turn_trace_summary(trace, integration.brain)
         extracted_fact = extracted_fact_from_trace(trace)
->>>>>>> 90fbd2a (Save local project changes before branch checkout)
 
         message_id = database.save_message_to_db(
             session_id=session_id,
             sender="jarvis",
             text=reply_str,
             source="web",
-            trace_log=json.dumps(trace_log_payload) if trace_log_payload else None,
+            trace_log=turn_trace_to_json(trace),
             extracted_fact=json.dumps(extracted_fact) if extracted_fact else None,
         )
 
@@ -538,7 +662,8 @@ async def chat_v6(payload: dict, request: Request = None, authorization: Optiona
             "text": reply_str,
             "timestamp": time.strftime("%H:%M:%S"),
             "source": "web",
-            "traceLog": trace_log_payload,
+            "trace": trace,
+            "traceLog": trace_summary,
             "extractedFact": extracted_fact,
         }
 
